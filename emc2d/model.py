@@ -4,11 +4,13 @@ import numpy as np
 
 from .utils import DriftSetup
 
+
+
 class Model(object):
-    def __init__(self, 
-        data: Union[str, None, np.ndarray], 
-        mean: float, 
-        drift_setup: DriftSetup):
+    def __init__(self,
+                 data: Union[str, None, np.ndarray],
+                 mean: float,
+                 drift_setup: DriftSetup):
 
         self._drift_setup = drift_setup
         self._data = self._initialze(data)

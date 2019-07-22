@@ -7,7 +7,7 @@ a = np.load("smiley.npy")
 print(a.shape)
 # plt.imshow(a)
 drift_setup = utils.DriftSetup(max_drift=(10,10), img_size=(129,129))
-model = model.Model(init_model=a, mean=0.5, drift_setup=drift_setup)
+model = model.Model(data=a, mean=0.5, drift_setup=drift_setup)
 
 expanded = list(model.expand(range(len(drift_setup.drift_table))))
 
