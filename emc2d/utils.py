@@ -1,9 +1,11 @@
-from typing import Tuple, Iterable
+from typing import Tuple, Iterable, Optional
 from typing import Sequence
 
 
 class DriftSetup(object):
-    def __init__(self, max_drift: Tuple[int, int], image_shape: Tuple[int, int]):
+    def __init__(self, max_drift: Tuple[int, int],
+                 image_shape: Tuple[int, int],
+                 model_shape: Optional[Tuple[int, int]] = None):
         """
         Parameters
         ----------
@@ -13,28 +15,21 @@ class DriftSetup(object):
             image_shape: Tuple[int, int]
                 the size of images being drift-corrected
         """
-        self._max_drift = max_drift
-        self._image_shape = image_shape
-        self._model_shape = (
-            image_shape[0] + 2 * max_drift[0],
-            image_shape[1] + 2 * max_drift[1])
+        if model_shape is None:
+            self.model_shape = (image_shape[d] + 2 * max_drift[d] for d in (0, 1))
+        else:
+            shape_not_match = (model_shape[d] != image_shape[d] + 2 * max_drift[d] for d in (0, 1))
+            if any(shape_not_match):
+                raise ValueError("constraint model_shape[d] == image_shape[d] + 2 * max_drift[d] does not hold")
+            self.model_shape = model_shape
+
+        self.max_drift = max_drift
+        self.image_shape = image_shape
 
         # drift dimensions in x and y
-        self._drift_dim = tuple(2*m+1 for m in self._max_drift)
+        self.drift_dim = tuple(2*m+1 for m in self.max_drift)
         # drift table of 2d int vectors
-        self._drift_table = DriftSetup.make_drift_table(self._max_drift)
-
-    @property
-    def drift_table(self) -> Tuple[Tuple[int, int], ...]:
-        return self._drift_table
-        
-    @property
-    def model_shape(self) -> Tuple[int, int]:
-        return self._model_shape
-
-    @property
-    def image_shape(self) -> Tuple[int, int]:
-        return self._image_shape
+        self.drift_table = DriftSetup.make_drift_table(self.max_drift)
 
     @staticmethod
     def make_drift_table(max_drift: Tuple[int, int]) -> Tuple[Tuple[int, int], ...]:
@@ -45,9 +40,9 @@ class DriftSetup(object):
         return drift_table
 
     def get_drift_indices(self, drifts: Sequence[Tuple[int, int]]) -> Sequence[int]:
-        return [(x % self._drift_dim[0]) * self._drift_dim[1] + y % self._drift_dim[1] for x, y in drifts]
+        return [(x % self.drift_dim[0]) * self.drift_dim[1] + y % self.drift_dim[1] for x, y in drifts]
 
-    def make_crop_boxes(self, drift_indices: Sequence[int]) -> Iterable[Tuple[int, int, int, int]]:
+    def make_crop_boxes(self, drift_indices: Iterable[int]) -> Iterable[Tuple[int, int, int, int]]:
         s = self.image_shape
         boxes = map(lambda pos: (pos[0], pos[0] + s[0], pos[1], pos[1] + s[1]),
                     [self.drift_table[i] for i in drift_indices])

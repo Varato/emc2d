@@ -6,13 +6,18 @@ from emc2d import model, image
 
 
 a = np.load("smiley.npy")
-m = model.Model(a, max_drift=(10, 10), image_shape=(129, 129))
-indices = [0, 1, 2, 3, 4]
-expended = m.expand(drift_indices=indices)
-# print(next(expended))
+# a = np.pad(a, pad_width=[100, 50], mode="constant", constant_values=0)
 
-fig, axes = plt.subplots(ncols=5)
+m = model.initialize(init_model=a, max_drift=(50, 50), image_shape=(129, 129))
+print("model shape:", m.shape)
+indices = range(m.num_drifts)
+expanded = m.expand(drift_indices=indices)
+composed = expanded.compose()
 
-for ax in axes:
-    ax.imshow(next(expended))
+plt.imshow(composed)
 plt.show()
+# fig, axes = plt.subplots(ncols=5)
+#
+# for ax in axes:
+#     ax.imshow(next(expanded))
+# plt.show()
