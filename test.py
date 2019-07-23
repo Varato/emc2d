@@ -1,22 +1,18 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from emc2d import model, utils
+
+from emc2d import model, image
+
 
 a = np.load("smiley.npy")
-print(a.shape)
-# plt.imshow(a)
-drift_setup = utils.DriftSetup(max_drift=(10,10), img_size=(129,129))
-model = model.Model(data=a, mean=0.5, drift_setup=drift_setup)
+m = model.Model(a, max_drift=(10, 10), image_shape=(129, 129))
+indices = [0, 1, 2, 3, 4]
+expended = m.expand(drift_indices=indices)
+# print(next(expended))
 
-expanded = list(model.expand(range(len(drift_setup.drift_table))))
-
-composed = model.compose(iter(expanded), drift_indices=range(len(drift_setup.drift_table)))
-plt.imshow(model._data)
-print(model._data.shape)
 fig, axes = plt.subplots(ncols=5)
-for i, ax in enumerate(axes):
-    ax.imshow(expanded[i])
-plt.show()
 
-print(abs(model._data - a).min())
+for ax in axes:
+    ax.imshow(next(expended))
+plt.show()

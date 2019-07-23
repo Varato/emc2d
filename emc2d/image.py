@@ -14,29 +14,51 @@ class Image(np.ndarray):
         if input_array.ndim != 2:
             raise ValueError(f"An Image must be constructed from 2D array, but {input_array.ndim:d}D received")
         obj = np.array(input_array, copy=False).view(cls)
-        print("obj constructed: ", type(obj), obj)
         obj.info = info
-        return obj # returns an Image's instance
+        return obj  # returns an Image's instance
 
-    def __array_finalize__(self, obj):
+    def __array_finalize__(self, viewed):
         # This method is called when (just before?) numpy constructs a new array.
         # obj here is the object where the new array has been constructed from
         # obj is None if it's been constructed from no where.
-        print("here: type(obj) is", type(obj), obj)
-        if obj is None: return
-        self.info = getattr(obj, 'info', None)
+        if viewed is None:
+            return
+        self.info = getattr(viewed, 'info', None)
 
     def crop(self, box: Tuple[int, int, int, int]):
-        return Image(self[box[0]:box[1], box[2]:box[3]])
+        return self[box[0]:box[1], box[2]:box[3]]
 
 
-def Stack(images: Iterable[Image]):
-    for im in images:
-        yield im
+class StackIter(object):
+    def __init__(self, images: Iterable[Image]):
+        self.images = iter(images)
 
-if __name__ == "__main__":
-    arr = np.arange(16).reshape(4,4)
-    im = Image(arr[0:3, 0:3])
-    # im2 = im[:,:]
-    # im3 = arr.view(Image)
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.images)
+
+
+class StackCompact(np.ndarray):
+    """
+    dimension 0 is considered as batch dimension
+    """
+    def __new__(cls, input_array: np.ndarray):
+        if input_array.ndim != 3:
+            raise ValueError(f"A Stack must be constructed from 3D array, but {input_array.ndim:d}D received")
+        obj = np.array(input_array, copy=False).view(cls)
+        return obj
+
+    def __array_finalize__(self, viewed):
+        if viewed is None:
+            return
+        if viewed.ndim != 3:
+            raise ValueError(f"A Stack must be constructed from 3D array, but {viewed.ndim:d}D received")
+
+
+class StackSparse:
+    pass
+
+
 
