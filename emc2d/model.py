@@ -3,17 +3,21 @@ import math
 import numpy as np
 
 from .utils import DriftSetup
+from .image import Image, Stack
 
 
+class Model(Image):
 
-class Model(object):
+    def __new__(cls, data, drift_set_up, mean):
+        return super(Model, cls).__new__(cls, input_array=data)
+
     def __init__(self,
                  data: Union[str, None, np.ndarray],
                  mean: float,
                  drift_setup: DriftSetup):
 
         self._drift_setup = drift_setup
-        self._data = self._initialze(data)
+        self._data = self._initialize(data)
         self.normalize(mean)
 
     def normalize(self, mean):
@@ -41,7 +45,7 @@ class Model(object):
         print("data updated")
         self._data = canvas
 
-    def _initialze(self, init_model: Union[str, None, np.ndarray]) -> np.ndarray:
+    def _initialize(self, init_model: Union[str, None, np.ndarray]) -> np.ndarray:
         if not isinstance(init_model, np.ndarray):
             if init_model == "random" or init_model is None:
                 return np.random.rand(*self._drift_setup.model_size)
@@ -59,11 +63,12 @@ class Model(object):
                 p0 = desired_size[0] - given_size[0] if is_smaller[0] else 0
                 p1 = desired_size[1] - given_size[1] if is_smaller[1] else 0
                 pad_width = ((math.floor(p0/2), math.ceil(p0/2)), (math.floor(p1/2), math.ceil(p1/2)))
-                #TODO: need to think about how to normalize when padding with 0s.
+                # TODO: need to think about how to normalize when padding with 0s.
                 return np.pad(init_model, pad_width, mode='constant', constant_values=0)
             else:
                 return init_model
-        
+
+
 class ExpandedModel(object):
     def __init__(self, expanded_model_iter: Iterator[np.ndarray]):
         self._expanded_model_iter = expanded_model_iter
