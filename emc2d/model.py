@@ -1,9 +1,10 @@
 from typing import Tuple, Union, Iterable
+from abc import abstractmethod, ABCMeta
 import math
 import numpy as np
 
 from .utils import DriftSetup
-from .image import Image, StackIter
+from .image import Image, StackIter, StackCompact
 
 
 class Model(Image):
@@ -14,10 +15,10 @@ class Model(Image):
         return obj
 
     def __array_finalize__(self, viewed):
+        # print("Mode final: ", viewed.shape)
         super(Model, self).__array_finalize__(viewed)
-        if viewed is None:
-            return
-        self._drift_setup = getattr(viewed, "_drift_setup", None)
+        if viewed is not None:
+            self._drift_setup = getattr(viewed, "_drift_setup", None)
 
     def expand(self, drift_indices: Iterable[int]) -> 'ExpandedModel':
         boxes = self._drift_setup.make_crop_boxes(drift_indices)
@@ -53,7 +54,12 @@ class ExpandedModel(StackIter):
         self._drift_setup = drift_setup
         self._drift_indices = drift_indices
 
-    # Delegate DriftSetup
+    @property
+    def drift_indices(self): return self._drift_indices
+
+    @property
+    def drift_setup(self): return self._drift_setup
+
     @property
     def drift_table(self):
         return self._drift_setup.drift_table
@@ -74,10 +80,10 @@ class ExpandedModel(StackIter):
         canvas = np.zeros(shape=self.model_shape)
         weights = np.zeros(shape=self.model_shape)
         s = self.image_shape
-        for i in self._drift_indices:
-            pos = self.drift_table[i]
-            canvas[pos[0]:pos[0]+s[0], pos[1]:pos[1]+s[1]] += next(self)
-            weights[pos[0]:pos[0]+s[0], pos[1]:pos[1]+s[1]] += 1
+        for patch, index in zip(self, self._drift_indices):
+            pos = self.drift_table[index]
+            canvas[pos[0]:pos[0] + s[0], pos[1]:pos[1] + s[1]] += patch
+            weights[pos[0]:pos[0] + s[0], pos[1]:pos[1] + s[1]] += 1
         canvas /= np.where(weights > 0, weights, 1)
         return Model(canvas, self.max_drift, self.image_shape)
 
@@ -107,5 +113,7 @@ def initialize(max_drift: Tuple[int, int], image_shape: Tuple[int, int],
                 start = (-diff[d]) // 2
                 stop = start + desired_shape[d]
                 modified = modified[start: stop, :] if d == 0 else modified[:, start: stop]
-            else: pass
+            else:
+                pass
         return Model(modified, max_drift, image_shape)
+
