@@ -1,42 +1,100 @@
 from typing import Tuple, Iterable
-import warnings
 import numpy as np
 import scipy.sparse as sp
 
 
 class Image(np.ndarray):
-    # see https://docs.scipy.org/doc/numpy/user/basics.subclassing.html for how to subclass ndarray
-    # call order:
-    #     1. Image.__new__()
-    #     2. In Image.__new__(), ndarray.__new__() should be called some how
-    #     3. ndarray.__new__() calls __array_finalize__, and then Image.__new__ returns
-    #     4. As normal in Python, Image.__init__() (if any) is called after tis __new__() is called
-    def __new__(cls, input_array: np.ndarray):
-        # notice: view() calls ndarray.__new__, which in turn calls __array_finalize__()
-        if input_array.ndim != 2:
-            raise ValueError(f"An Image must be constructed from 2D array, but {input_array.ndim:d}D received")
-        obj = np.array(input_array, copy=False).view(cls)
-        return obj  # returns an Image's instance
+    """
+    An ndarray subclass with dimensionality constrained to 2.
+    Notice:
+        1. Explicit constructing, slicing/indexing an Image object always results in a 2D array-like Image object.
+        2. View-cast from other type with dimensionality other than 2 raises ValueError
+    """
+    def __new__(cls, data):
+        arr = np.asanyarray(data)
+        if arr.ndim > 2:
+            raise ValueError(f"An Image must be constructed from 2D array, but {arr.ndim:d}D received")
+        obj = arr.view(cls)
+        if obj.ndim == 0:
+            obj = obj[np.newaxis][np.newaxis]
+        if obj.ndim == 1:
+            obj = obj[np.newaxis, :]
+        return obj
 
     def __array_finalize__(self, viewed):
-        # This method is called when (just before?) numpy constructs a new array.
-        # obj here is the object where the new array has been constructed from
-        # obj is None if it's been constructed from no where.
-        # print("Image final: ", viewed.shape)
-        if viewed is not None:
-            if viewed.ndim != 2:
-                raise ValueError(f"A {viewed.ndim:d}D array is views as Image. Expect 2D.")
-                # warnings.warn(f"A {viewed.ndim:d}D array is views as Image. Expect 2D.")
-        # pass
-
-    def __getitem__(self, item):
-        ret = super().__getitem__(item)  # slicing as numpy array
-        if ret.ndim != 2:
-            return np.array(ret)
-        return ret
+        # called when the object "viewed" has been view-cast to an Image
+        if self.ndim != 2:
+            raise ValueError(f"A {self.ndim:d}D Image is view-cast by a {type(viewed)}. Expect 2D.")
 
     def crop(self, box: Tuple[int, int, int, int]):
         return self[box[0]:box[1], box[2]:box[3]]
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        # overriding ufuncs behavior
+        # see https://docs.scipy.org/doc/numpy-1.13.0/neps/ufunc-overrides.html
+
+        # view-cast any Image in inputs back to numpy array
+        back_inputs = []
+        for i, input_ in enumerate(inputs):
+            if isinstance(input_, Image):
+                back_inputs.append(input_.view(np.ndarray))
+            else:
+                back_inputs.append(input_)
+
+        # view-cast any Image in outputs back to numpy array
+        outputs = kwargs.pop('out', None)
+        if outputs:
+            out_args = []
+            for j, output in enumerate(outputs):
+                if isinstance(output, Image):
+                    out_args.append(output.view(np.ndarray))
+                else:
+                    out_args.append(output)
+            kwargs['out'] = tuple(out_args)
+        else:
+            outputs = (None,) * ufunc.nout
+
+        results = super(Image, self).__array_ufunc__(ufunc, method, *back_inputs, **kwargs)
+
+        if results is NotImplemented:
+            return NotImplemented
+
+        if ufunc.nout == 1:
+            results = (results,)
+
+        final_results = []
+        for result, output in zip(results, outputs):
+            if output is None:
+                arr_result = np.asarray(result)
+                if arr_result.ndim == 2:
+                    final_results.append(arr_result.view(Image))
+                else:
+                    final_results.append(arr_result)
+            else:
+                final_results.append(output)
+
+        return final_results[0] if len(final_results) == 1 else final_results
+
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            safe_index = (None, item)
+        elif isinstance(item, slice):
+            safe_index = item
+        elif isinstance(item, tuple) and len(item) == 2:
+            idx, idy = item
+            if all(isinstance(x, int) for x in item):
+                safe_index = (None, None, idx, idy)
+            elif all(isinstance(x, slice) for x in item):
+                safe_index = item
+            elif isinstance(idx, int):
+                safe_index = (None, idx, idy)
+            elif isinstance(idy, int):
+                safe_index = (idx, idy, None)
+            else:
+                raise IndexError("Image object is not sliced/indexed properly")
+        else:
+            raise IndexError("Image object is not sliced/indexed properly")
+        return super().__getitem__(safe_index)
 
 
 class StackIter(object):
@@ -48,25 +106,6 @@ class StackIter(object):
 
     def __next__(self):
         return next(self.images)
-
-
-class StackCompact(np.ndarray):
-    """
-    dimension 0 is considered as batch dimension
-    """
-    def __new__(cls, images: np.ndarray):
-        if images.ndim != 3:
-            raise ValueError(f"A Stack must be constructed from 3D array, but {images.ndim:d}D received")
-        obj = np.array(images, copy=False).view(cls)
-        return obj
-
-    def __array_finalize__(self, viewed):
-        if viewed is not None:
-            if viewed.ndim != 3:
-                raise ValueError(f"A Stack must be constructed from 3D array, but {viewed.ndim:d}D received")
-
-    def batch_flatten(self):
-        return self.reshape((self.shape[0], -1))
 
 
 class StackSparse(sp.csr_matrix):

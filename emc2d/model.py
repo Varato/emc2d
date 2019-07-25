@@ -1,16 +1,15 @@
 from typing import Tuple, Union, Iterable
-from abc import abstractmethod, ABCMeta
 import math
 import numpy as np
 
 from .utils import DriftSetup
-from .image import Image, StackIter, StackCompact
+from .image import Image, StackIter
 
 
 class Model(Image):
     def __new__(cls, input_array: np.ndarray, max_drift: Tuple[int, int], image_shape: Tuple[int, int]):
         drift_setup = DriftSetup(max_drift, image_shape, input_array.shape)  # raise exception if shape cannot match
-        obj = super(Model, cls).__new__(cls, input_array=input_array)
+        obj = super(Model, cls).__new__(cls, data=input_array)
         obj._drift_setup = drift_setup
         return obj
 
