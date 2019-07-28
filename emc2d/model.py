@@ -2,18 +2,19 @@ from typing import Tuple, Union, Iterable
 import math
 import numpy as np
 
-from .utils import DriftSetup
+from .drift_setup import DriftSetup
 from .image import Image
 
 
 class _ModelBase(object):
-    def __new__(cls, *args, **kwargs):
-        super(_ModelBase, cls).__new__(args, kwargs)
-
     def __init__(self, drift_setup: DriftSetup):
         self._drift_setup = drift_setup
 
     # Delegate DriftSetup
+    @property
+    def drift_setup(self):
+        return self._drift_setup
+
     @property
     def drift_table(self):
         return self._drift_setup.drift_table
@@ -45,32 +46,19 @@ class Model(_ModelBase):
     def content(self) -> Image:
         return self._content
 
-    def expand(self, drift_indices: Iterable[int]) -> 'ExpandedModel':
-        crops = self._drift_setup.make_crop_boxes(drift_indices)
-        return ExpandedModel(images=map(self._content.crop, crops),
-                             drift_setup=self._drift_setup,
-                             drift_indices=drift_indices)
-
 
 class ExpandedModel(_ModelBase):
-    def __init__(self, images: Iterable[Image], drift_indices: Iterable[int], drift_setup: DriftSetup):
+    def __init__(self, patches: Iterable[Image], drift_indices: Iterable[int], drift_setup: DriftSetup):
         super(ExpandedModel, self).__init__(drift_setup)
         self._drift_indices = drift_indices
-        self._patches = images
+        self._patches = patches
 
     @property
     def drift_indices(self): return self._drift_indices
 
-    def compose(self) -> Model:
-        canvas = np.zeros(shape=self.model_shape)
-        weights = np.zeros(shape=self.model_shape)
-        s = self.image_shape
-        for patch, index in zip(self._patches, self._drift_indices):
-            pos = self.drift_table[index]
-            canvas[pos[0]:pos[0] + s[0], pos[1]:pos[1] + s[1]] += patch
-            weights[pos[0]:pos[0] + s[0], pos[1]:pos[1] + s[1]] += 1
-        canvas /= np.where(weights > 0, weights, 1)
-        return Model(canvas, self.max_drift, self.image_shape)
+    @property
+    def patches(self):
+        return self._patches
 
 
 def initialize(max_drift: Tuple[int, int], image_shape: Tuple[int, int],
