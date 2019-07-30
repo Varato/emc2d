@@ -26,9 +26,9 @@ def expand(model: Model, drift_indices: Iterable[int]) -> ExpandedModel:
 
 
 def compose(expanded_model: ExpandedModel) -> Model:
+    boxes = make_crop_boxes(expanded_model.drift_setup, expanded_model.drift_indices)
     canvas = np.zeros(shape=expanded_model.model_shape)
     weights = np.zeros(shape=expanded_model.model_shape)
-    boxes = make_crop_boxes(expanded_model.drift_setup, expanded_model.drift_indices)
     for patch, box in zip(expanded_model.patches, boxes):
         canvas[box[0]:box[1], box[2]:box[3]] += patch
         weights[box[0]:box[1], box[2]:box[3]] += 1
