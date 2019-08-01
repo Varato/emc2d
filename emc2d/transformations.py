@@ -1,9 +1,11 @@
 from typing import Tuple, Iterable
 import functools
 import numpy as np
+
 from .drift_setup import DriftSetup
 from .image import Image
 from .model import Model, ExpandedModel
+from .frame_stack import FrameStack
 
 
 def make_crop_boxes(drift_setup: DriftSetup, drift_indices: Iterable[int]) -> Iterable[Tuple[int, int, int, int]]:
@@ -34,3 +36,8 @@ def compose(expanded_model: ExpandedModel) -> Model:
         weights[box[0]:box[1], box[2]:box[3]] += 1
     canvas /= np.where(weights > 0, weights, 1)
     return Model(canvas, expanded_model.max_drift, expanded_model.image_shape)
+
+
+def maximize(expanded_model: ExpandedModel, frames: FrameStack):
+    for patch in expanded_model.patches:
+        pass
