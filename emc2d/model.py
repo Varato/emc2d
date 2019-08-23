@@ -3,7 +3,6 @@ import math
 import numpy as np
 
 from .drift_setup import DriftSetup
-from .image import Image
 
 
 class _ModelBase(object):
@@ -37,28 +36,28 @@ class _ModelBase(object):
 
 
 class Model(_ModelBase):
-    def __init__(self, data, max_drift: Tuple[int, int], image_shape: Tuple[int, int]):
+    def __init__(self, data: np.ndarray, max_drift: Tuple[int, int], image_shape: Tuple[int, int]):
         drift_setup = DriftSetup(max_drift, image_shape, data.shape)  # raise exception if shape cannot match
         super(Model, self).__init__(drift_setup)
-        self._content = Image(data)
+        self._content = data
 
     @property
-    def content(self) -> Image:
+    def content(self) -> np.ndarray:
         return self._content
 
 
 class ExpandedModel(_ModelBase):
-    def __init__(self, patches: Iterable[Image], drift_indices: Iterable[int], drift_setup: DriftSetup):
+    def __init__(self, patterns: Iterable[np.ndarray], drift_indices: Iterable[int], drift_setup: DriftSetup):
         super(ExpandedModel, self).__init__(drift_setup)
         self._drift_indices = drift_indices
-        self._patches = patches
+        self._patterns = patterns
 
     @property
     def drift_indices(self): return self._drift_indices
 
     @property
-    def patches(self):
-        return self._patches
+    def patterns(self):
+        return self._patterns
 
 
 def initialize(max_drift: Tuple[int, int], image_shape: Tuple[int, int],
