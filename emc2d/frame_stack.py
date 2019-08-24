@@ -6,6 +6,11 @@ from scipy.sparse.csr import csr_matrix
 class FrameStack(object):
     def __init__(self, frames: Union[np.ndarray, csr_matrix]):
         self._data = vectorize_data(frames)
+        self.as_csr_matrix = isinstance(self._data, csr_matrix)
+
+    @property
+    def data(self):
+        return self._data
 
 
 def vectorize_data(frames: Union[np.ndarray, csr_matrix]):

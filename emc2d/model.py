@@ -53,7 +53,8 @@ class ExpandedModel(_ModelBase):
         self._patterns = patterns
 
     @property
-    def drift_indices(self): return self._drift_indices
+    def drift_indices(self):
+        return self._drift_indices
 
     @property
     def patterns(self):
