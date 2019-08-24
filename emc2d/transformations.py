@@ -4,27 +4,9 @@ import numpy as np
 import numpy.ma as ma
 from scipy.sparse.csr import csr_matrix
 
-
 from .drift_setup import DriftSetup
 from .model import Model, ExpandedModel
 from .frame_stack import FrameStack
-
-
-def make_crop_boxes(drift_setup: DriftSetup, drift_indices: Iterable[int]) -> Iterable[Tuple[int, int, int, int]]:
-    s = drift_setup.image_shape
-    boxes = map(lambda pos: (pos[0], pos[0]+s[0], pos[1], pos[1]+s[1]),
-                [drift_setup.drift_table[i] for i in drift_indices])
-    return boxes
-
-
-def crop(image: np.ndarray, box: Tuple[int, int, int, int]) -> np.ndarray:
-    return image[box[0]:box[1], box[2]:box[3]]
-
-
-# not pure
-def _patch(image: np.ndarray, box: Tuple[int, int, int, int], pattern) -> np.ndarray:
-    image[box[0]:box[1], box[2]:box[3]] += pattern
-    return image
 
 
 def expand(model: Model, drift_indices: Iterable[int]) -> ExpandedModel:
@@ -82,5 +64,21 @@ def membership_probabilities(patterns: np.ndarray, frames: Union[np.ndarray, csr
         p = wr / np.sum(wr, axis=0, keepdims=True)
     return p
 
+
+def make_crop_boxes(drift_setup: DriftSetup, drift_indices: Iterable[int]) -> Iterable[Tuple[int, int, int, int]]:
+    s = drift_setup.image_shape
+    boxes = map(lambda pos: (pos[0], pos[0]+s[0], pos[1], pos[1]+s[1]),
+                [drift_setup.drift_table[i] for i in drift_indices])
+    return boxes
+
+
+def crop(image: np.ndarray, box: Tuple[int, int, int, int]) -> np.ndarray:
+    return image[box[0]:box[1], box[2]:box[3]]
+
+
+# not pure
+def _patch(image: np.ndarray, box: Tuple[int, int, int, int], pattern) -> np.ndarray:
+    image[box[0]:box[1], box[2]:box[3]] += pattern
+    return image
 
 
