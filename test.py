@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 
 from emc2d import model, image
-from emc2d import transformations as tf
+from emc2d import transforms as tf
 
 
 a = np.load("smiley.npy")
@@ -15,7 +15,7 @@ indices = range(m.num_drifts)
 
 print("model shape:", m.content.shape)
 
-comp = tf.compose(tf.expand(m, indices))
+comp = tf.compress(tf.expand(m, indices))
 
 plt.imshow(comp.content)
 plt.show()

@@ -1,16 +1,21 @@
-from typing import Union
+from typing import Union, Tuple
 import numpy as np
 from scipy.sparse.csr import csr_matrix
 
 
 class FrameStack(object):
-    def __init__(self, frames: Union[np.ndarray, csr_matrix]):
+    def __init__(self, frames: Union[np.ndarray, csr_matrix], frame_shape: Tuple[int, int]):
         self._data = vectorize_data(frames)
+        self._frame_shape = frame_shape
         self.as_csr_matrix = isinstance(self._data, csr_matrix)
 
     @property
-    def data(self):
+    def vdata(self):
         return self._data
+
+    @property
+    def frame_shape(self):
+        return self._frame_shape
 
 
 def vectorize_data(frames: Union[np.ndarray, csr_matrix]):

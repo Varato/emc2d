@@ -52,21 +52,6 @@ class Model(_ModelBase):
         return self._content
 
 
-class ExpandedModel(_ModelBase):
-    def __init__(self, patterns: Iterable[np.ndarray], drift_indices: Iterable[int], drift_setup: DriftSetup):
-        super(ExpandedModel, self).__init__(drift_setup)
-        self._drift_indices = drift_indices
-        self._patterns = patterns
-
-    @property
-    def drift_indices(self):
-        return self._drift_indices
-
-    @property
-    def patterns(self):
-        return self._patterns
-
-
 def initialize(max_drift: Tuple[int, int], image_shape: Tuple[int, int],
                init_model: Union[str, None, np.ndarray] = None) -> Model:
     desired_shape = tuple(image_shape[d] + 2 * max_drift[d] for d in (0, 1))
