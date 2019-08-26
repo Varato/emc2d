@@ -50,9 +50,10 @@ def compose(expanded_model: ExpandedModel) -> Model:
 
 def membership_probabilities(patterns: np.ndarray, frames: Union[np.ndarray, csr_matrix], prior=None):
     """
-    Given
+    This function associates membership probabilities of patterns to each frame.
+    A prior distribution of patterns (positions) can be given.
     """
-    log_pattern = ma.log(patterns).filled(-39)
+    log_pattern = ma.log(patterns).filled(-300)
     log_r = log_pattern @ frames.T - np.sum(patterns, axis=1, keepdims=True)
     log_r_cap = np.max(log_r, axis=0, keepdims=True)
     r = np.exp(np.clip(log_r - log_r_cap, -300.0, 0.0))
@@ -63,6 +64,13 @@ def membership_probabilities(patterns: np.ndarray, frames: Union[np.ndarray, csr
         wr = r * prior.reshape(-1, 1)
         p = wr / np.sum(wr, axis=0, keepdims=True)
     return p
+
+def membership_probabilities2(patterns, frames, prior=None):
+    log_r = [[log_likelihood(pattern, frame) for frame in frames] for pattern in patterns]
+
+
+def log_likelihood(pattern, frame):
+    return np.sum(ma.log(pattern).filled(-300) * frame - pattern)
 
 
 def make_crop_boxes(drift_setup: DriftSetup, drift_indices: Iterable[int]) -> Iterable[Tuple[int, int, int, int]]:

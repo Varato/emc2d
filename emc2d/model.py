@@ -39,7 +39,13 @@ class Model(_ModelBase):
     def __init__(self, data: np.ndarray, max_drift: Tuple[int, int], image_shape: Tuple[int, int]):
         drift_setup = DriftSetup(max_drift, image_shape, data.shape)  # raise exception if shape cannot match
         super(Model, self).__init__(drift_setup)
-        self._content = data
+        minimum = np.min(data)
+        if minimum < 0:
+            raise ValueError("Model must be initialized by an all-positive array")
+        elif minimum == 0:
+            self._content = np.where(data == 0, 1e-17, data)
+        else:
+            self._content = data
 
     @property
     def content(self) -> np.ndarray:
