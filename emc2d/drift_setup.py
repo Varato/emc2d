@@ -36,7 +36,7 @@ class DriftSetup(object):
         """
         generates all possible drifts given max_drift.
         """
-        drift_table = tuple((x,y) for x in range(0, 2 * max_drift[0] + 1) for y in range(0, 2 * max_drift[1] + 1))
+        drift_table = tuple((x, y) for x in range(0, 2 * max_drift[0] + 1) for y in range(0, 2 * max_drift[1] + 1))
         return drift_table
 
     def get_drift_indices(self, drifts: Sequence[Tuple[int, int]]) -> Sequence[int]:

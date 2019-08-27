@@ -10,14 +10,14 @@ from .drift_setup import DriftSetup
 from .model import Model
 
 
-def expand(model: Model, drift_indices: Iterable[int]) -> Iterable[np.ndarray]:
+def expand(model: Model, drift_indices: Optional[Iterable[int]] = None) -> Iterable[np.ndarray]:
     boxes = make_crop_boxes(model.drift_setup, drift_indices)
     crop_this = functools.partial(crop, model.content)
     patterns = map(crop_this, boxes)
     return patterns
 
 
-def compress(patterns: Iterable[np.ndarray], drift_setup: DriftSetup, drift_indices: Iterable[int]) -> Model:
+def compress(patterns: Iterable[np.ndarray], drift_setup: DriftSetup, drift_indices: Optional[Iterable[int]] = None) -> Model:
     boxes = make_crop_boxes(drift_setup, drift_indices)
     canvas, weights = functools.reduce(
         lambda cw, bp: (_patch(cw[0], bp[0], bp[1]), _patch(cw[1], bp[0], 1)),
@@ -28,8 +28,10 @@ def compress(patterns: Iterable[np.ndarray], drift_setup: DriftSetup, drift_indi
     return Model(model_content, drift_setup.max_drift, drift_setup.image_shape)
 
 
-def make_crop_boxes(drift_setup: DriftSetup, drift_indices: Iterable[int]) -> Iterable[Tuple[int, int, int, int]]:
+def make_crop_boxes(drift_setup: DriftSetup, drift_indices: Optional[Iterable[int]] = None) -> Iterable[Tuple[int, int, int, int]]:
     s0, s1 = drift_setup.image_shape
+    if drift_indices is None:
+        drift_indices = range(len(drift_setup.drift_table))
     boxes = map(lambda pos: (pos[0], pos[0]+s0, pos[1], pos[1]+s1),
                 [drift_setup.drift_table[i] for i in drift_indices])
     return boxes

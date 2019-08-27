@@ -2,7 +2,8 @@
 This module provides functions that are responsible to the maximization step.
 Real-world frames are involved and a lot numeric concerns should be here.
 """
-from typing import Union, Iterable, Optional, List
+from typing import Union, Iterable, Optional, Tuple, Callable, NewType
+from functools import partial
 import numpy as np
 from scipy.sparse.csr import csr_matrix
 
@@ -11,11 +12,30 @@ from .drift_setup import DriftSetup
 from .frame_stack import FrameStack
 from .model import Model
 
+Membership = NewType("Memberships", np.ndarray)
+
+
+def update_model_and_memberships(frame_stack: FrameStack,
+                                 drift_setup: DriftSetup,
+                                 drift_indices: Optional[Iterable[int]] = None,
+                                 prior: Optional[np.ndarray] = None) \
+        -> Callable[[Tuple[Model, np.ndarray]], Tuple[Model, np.ndarray]]:
+
+    aggregate_ = partial(aggregate, frame_stack=frame_stack, drift_setup=drift_setup, drift_indices=drift_indices)
+    assign_ = partial(assign_memberships, frame_stack=frame_stack, drift_indices=drift_indices, prior=prior)
+
+    def f(model_p_tuple: Tuple[Model, np.ndarray]) -> Tuple[Model, np.ndarray]:
+        m, p = model_p_tuple
+        m1 = aggregate_(p)
+        p1 = assign_(m1)
+        return m1, p1
+    return f
+
 
 def aggregate(memberships: np.ndarray,
               frame_stack: FrameStack,
               drift_setup: DriftSetup,
-              drift_indices: Iterable[int]) -> Model:
+              drift_indices: Optional[Iterable[int]] = None) -> Model:
     """
     This function aggregates frames into patterns according to membership probability
 
@@ -41,8 +61,8 @@ def aggregate(memberships: np.ndarray,
 
 def assign_memberships(model: Model,
                        frame_stack: FrameStack,
-                       drift_indices: Iterable[int],
-                       prior: Optional[np.ndarray] = None) -> np.ndarray:
+                       prior: Optional[np.ndarray] = None,
+                       drift_indices: Optional[Iterable[int]] = None) -> np.ndarray:
     """
     Given a model, this function assigns (probabilistic) memberships for each frame in the frame_stack
     within a subset of all possible drifts specifying by drift_indices.
@@ -94,3 +114,17 @@ def _membership_probabilities(patterns: Iterable[np.ndarray],
 
 def _poisson_log_likelihood(pattern: np.ndarray, frame: Union[np.ndarray, csr_matrix]):
     return np.sum(np.log(pattern) * frame - pattern)
+
+
+
+
+# def emc_iterator(model, frame_stack, prior):
+#     f = partial(aggregate, frame_stack=frame_stack, drift_setup=model.drift_setup)
+#     g = partial(assign_memberships, frame_stack=frame_stack, prior=prior)
+#     while True:
+#         model2 = yield model
+#         drift_indices = yield
+#         memberships = g(model=model if model2 is None else model2, drift_indices=drift_indices)
+#         memberships2 = yield memberships
+#         model = f(memberships=memberships if memberships2 is None else memberships2, drift_indices=drift_indices)
+
