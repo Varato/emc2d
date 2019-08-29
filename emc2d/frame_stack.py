@@ -2,6 +2,8 @@ from typing import Union, Tuple
 import numpy as np
 from scipy.sparse.csr import csr_matrix
 
+Array = np.ndarray
+
 
 class FrameStack(object):
     def __init__(self, frames: Union[np.ndarray, csr_matrix], frame_shape: Tuple[int, int]):
@@ -18,7 +20,7 @@ class FrameStack(object):
         return self._frame_shape
 
 
-def vectorize_data(frames: Union[np.ndarray, csr_matrix]):
+def vectorize_data(frames: Union[Array, csr_matrix]):
     if isinstance(frames, csr_matrix):
         if frames.ndim != 2:
             raise ValueError("\"frames\" as a csr_matrix must be rank 2")

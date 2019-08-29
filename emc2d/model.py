@@ -4,6 +4,8 @@ import numpy as np
 
 from .drift_setup import DriftSetup
 
+Array = np.ndarray
+
 
 class _ModelBase(object):
     def __init__(self, drift_setup: DriftSetup):
@@ -36,7 +38,7 @@ class _ModelBase(object):
 
 
 class Model(_ModelBase):
-    def __init__(self, data: np.ndarray, max_drift: Tuple[int, int], image_shape: Tuple[int, int]):
+    def __init__(self, data: Array, max_drift: Tuple[int, int], image_shape: Tuple[int, int]):
         drift_setup = DriftSetup(max_drift, image_shape, data.shape)  # raise exception if shape cannot match
         super(Model, self).__init__(drift_setup)
         minimum = np.min(data)
@@ -48,12 +50,12 @@ class Model(_ModelBase):
             self._content = data
 
     @property
-    def content(self) -> np.ndarray:
+    def content(self) -> Array:
         return self._content
 
 
 def initialize(max_drift: Tuple[int, int], image_shape: Tuple[int, int],
-               init_model: Union[str, None, np.ndarray] = None) -> Model:
+               init_model: Union[str, None, Array] = None) -> Model:
     desired_shape = tuple(image_shape[d] + 2 * max_drift[d] for d in (0, 1))
     if not isinstance(init_model, np.ndarray):
         if init_model == "random" or init_model is None:
