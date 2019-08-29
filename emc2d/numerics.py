@@ -112,8 +112,9 @@ def assign_memberships(model: Model,
 
 
     """
-    patterns = (np.reshape(p, -1) for p in expand(model, drift_indices))
-    memberships = _membership_probabilities(patterns, frame_stack.vdata, prior)
+    patterns = expand(model, drift_indices)
+    n = patterns.shape[0]
+    memberships = _membership_probabilities(patterns.reshape(n, -1), frame_stack.vdata, prior)
     return memberships
 
 
@@ -124,13 +125,8 @@ def _membership_probabilities(patterns: Iterable[Array],
     This function associates membership probabilities of patterns to each frame.
     A prior distribution of patterns (positions) can be given.
     """
-    if isinstance(frames, csr_matrix):  # make use of the faster csr multiplication
-        patterns = np.vstack(patterns)
-        log_pattern = np.log(patterns)
-        log_r = log_pattern @ frames.T - np.sum(patterns, axis=1, keepdims=True)
-    else:  # otherwise, keep patterns lazy
-        log_r = np.vstack([[_poisson_log_likelihood(pattern, frame) for frame in frames]
-                           for pattern in patterns])
+    log_pattern = np.log(patterns)
+    log_r = log_pattern @ frames.T - np.sum(patterns, axis=1, keepdims=True)
     log_r_cap = np.max(log_r, axis=0, keepdims=True)
     r = np.exp(np.clip(log_r - log_r_cap, -300.0, 0.0))
 
@@ -144,9 +140,6 @@ def _membership_probabilities(patterns: Iterable[Array],
         p = wr / np.sum(wr, axis=0, keepdims=True)
     return p
 
-
-def _poisson_log_likelihood(pattern: Array, frame: Union[Array, csr_matrix]):
-    return np.sum(np.log(pattern) * frame - pattern)
 
 
 

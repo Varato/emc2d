@@ -45,7 +45,7 @@ class Model(_ModelBase):
         if minimum < 0:
             raise ValueError("Model must be initialized by an all-positive array")
         elif minimum == 0:
-            self._content = np.where(data == 0, 1e-17, data)
+            self._content = np.clip(data, 1e-17, None)
         else:
             self._content = data
 
@@ -83,3 +83,7 @@ def initialize(max_drift: Tuple[int, int], image_shape: Tuple[int, int],
                 pass
         return Model(modified, max_drift, image_shape)
 
+
+def set_model_pixel_mean(model: Model, mean: float) -> Model:
+    content = mean * model.content / model.content.mean()
+    return Model(content, model.max_drift, model.image_shape)

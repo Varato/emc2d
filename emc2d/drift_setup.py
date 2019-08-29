@@ -1,5 +1,7 @@
-from typing import Tuple, Iterable, Optional
+from typing import Tuple, Iterable, Optional, List
 from typing import Sequence
+
+Indices = Iterable[int]
 
 
 class DriftSetup(object):
@@ -42,8 +44,9 @@ class DriftSetup(object):
     def get_drift_indices(self, drifts: Sequence[Tuple[int, int]]) -> Sequence[int]:
         return [(x % self.drift_dim[0]) * self.drift_dim[1] + y % self.drift_dim[1] for x, y in drifts]
 
-    def make_crop_boxes(self, drift_indices: Iterable[int]) -> Iterable[Tuple[int, int, int, int]]:
+    def make_crop_boxes(self, drift_indices: Optional[Indices] = None) -> List[Tuple[int, int, int, int]]:
         s = self.image_shape
-        boxes = map(lambda pos: (pos[0], pos[0] + s[0], pos[1], pos[1] + s[1]),
-                    [self.drift_table[i] for i in drift_indices])
+        if drift_indices is None:
+            drift_indices = range(len(self.drift_table))
+        boxes = [(pos[0], pos[0] + s[0], pos[1], pos[1] + s[1]) for pos in [self.drift_table[i] for i in drift_indices]]
         return boxes
