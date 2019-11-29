@@ -45,13 +45,9 @@ class Model(_ModelBase):
         if minimum < 0:
             raise ValueError("Model must be initialized by an all-positive array")
         elif minimum == 0:
-            self._content = np.clip(data, 1e-17, None)
+            self.content = np.clip(data, 1e-17, None)
         else:
-            self._content = data
-
-    @property
-    def content(self) -> Array:
-        return self._content
+            self.content = data
 
 
 def initialize(max_drift: Tuple[int, int], image_shape: Tuple[int, int],

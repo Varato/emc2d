@@ -5,7 +5,8 @@ Indices = Iterable[int]
 
 
 class DriftSetup(object):
-    def __init__(self, max_drift: Tuple[int, int],
+    def __init__(self,
+                 max_drift: Tuple[int, int],
                  image_shape: Tuple[int, int],
                  model_shape: Optional[Tuple[int, int]] = None):
         """

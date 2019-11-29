@@ -52,13 +52,12 @@ def update_model_and_memberships(frame_stack: FrameStack,
                                  drift_setup: DriftSetup,
                                  drift_indices: Optional[Indices] = None,
                                  prior: Optional[Array] = None) \
-        -> Callable[[Tuple[Model, Memberships]], Tuple[Model, Memberships]]:
+        -> Callable[[Array], Tuple[Model, Memberships]]:
 
     aggregate_ = partial(aggregate, frame_stack=frame_stack, drift_setup=drift_setup, drift_indices=drift_indices)
     assign_ = partial(assign_memberships, frame_stack=frame_stack, drift_indices=drift_indices, prior=prior)
 
-    def f(model_p_tuple: Tuple[Model, np.ndarray]) -> Tuple[Model, np.ndarray]:
-        m, p = model_p_tuple
+    def f(p: Array) -> Tuple[Model, np.ndarray]:
         m1 = aggregate_(p)
         p1 = assign_(m1)
         return m1, p1

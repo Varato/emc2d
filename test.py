@@ -6,7 +6,7 @@ import time
 from emc2d import model
 from emc2d.sim_tools import random_walk_trajectory, frames_with_random_walk_drifts
 from emc2d.frame_stack import FrameStack
-from emc2d.main import emc_simple
+from emc2d.main import Emc
 
 from emc2d.fn_tools import take
 
@@ -24,16 +24,17 @@ frames = frames_with_random_walk_drifts(m, rw, mean_count=1.2)
 
 frame_stack = FrameStack(frames, m.image_shape)
 
-emc = emc_simple(frame_stack, m.drift_setup)
+emc = Emc(frame_stack, m.drift_setup)
 
 tic = time.time()
-results = take(30, emc)
+emc.run(30)
 toc = time.time()
 print("time spent:", toc-tic)
+result = emc.model
 
 fig, (ax1, ax2) = plt.subplots(ncols=2)
 ax1.imshow(frames.sum(0))
-ax2.imshow(results[-1][0].content)
+ax2.imshow(result.content)
 plt.show()
 
 
