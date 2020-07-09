@@ -1,14 +1,20 @@
+import tensorflow as tf
+
 import numpy as np
 from numpy import ma
 
-from .utils import make_drift_vectors
-from .transform import Drift
+from utils import make_drift_vectors
 
+devices = tf.config.list_physical_devices('GPU')
+print("available gpu(s):", devices)
+
+tf.debugging.set_log_device_placement(True)
 
 class EMC(object):
 
     def __init__(self, frames, max_drift, init_model='sum'):
-        self.frames = frames
+        self.frames = tf.constant(frames, dtype=tf.uint16)
+
         self.n_frames = frames.shape[0]
         self.frame_size = frames.shape[1:]
         self.max_drift = max_drift
@@ -16,7 +22,6 @@ class EMC(object):
         self.model_size = self.curr_model.shape
 
         self.drifts = make_drift_vectors(max_drift, origin='corner')
-        self.transforms = Drift(self.model_size, self.frame_size)
         self._mask = None
 
     def initialize_model(self, init_model):
@@ -66,33 +71,26 @@ class EMC(object):
             start_y = margin[1]//2 if margin[1]%2 == 0 else margin[1]//2 + 1
             return model[start_x:start_x+expected_model_size[0], start_y:start_y+expected_model_size[1]]
 
-    def expand(self, model, drift_indices=None):
-        # return self.transforms.forward(model, self.drifts)
-        if drift_indices is None:
-            drift_indices = np.arange(0, len(self.drifts))
-
+    def expand(self, model, drift_indices):
         num_drifts = len(drift_indices)
         window_size = self.frame_size
-        expanded_model = np.zeros(shape=(num_drifts, *window_size), dtype=np.float)
-        for k, i in enumerate(drift_indices):
+        expanded_model = np.empty(shape=(num_drifts, *window_size))
+        for i in drift_indices:
             s = self.drifts[i]
-            expanded_model[k] = model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]]
+            expanded_model[i, :, :] = model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]]
         return expanded_model
 
-    def compress(self, expanded_model, drift_indices=None):
-        # return self.transforms.backward(expanded_model, self.drifts)
-        if drift_indices is None:
-            drift_indices = np.arange(0, len(self.drifts))
-
+    def compress(self, expanded_model, drift_indices):
         window_size = self.frame_size
-        model   = np.zeros(shape=self.model_size, dtype=np.float)
-        weights = np.zeros(shape=self.model_size, dtype=np.float)
+
+        model = np.zeros(shape=self.model_size)
+        weights = np.zeros_like(model)
         for k, i in enumerate(drift_indices):
             s = self.drifts[i]
-            model  [s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += expanded_model[k]
-            weights[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += 1.0
+            model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += expanded_model[k]
+            weights[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += 1
 
-        return model / np.where(weights > 0., weights, 1.)
+        return model / np.where(weights == 0., 1.0, weights)
 
     def maximize(self, expanded_model):
         npix = self.frame_size[0] * self.frame_size[1]
@@ -122,4 +120,5 @@ class EMC(object):
 
 
 
-
+if __name__ == "__main__":
+    pass
