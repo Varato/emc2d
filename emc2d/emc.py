@@ -63,16 +63,19 @@ class EMC(object):
             return model[start_x:start_x+expected_model_size[0], start_y:start_y+expected_model_size[1]]
 
     def expand(self, model, drift_indices):
-        expanded_model = np.empty(shape=(n, *window))
+        num_drifts = len(drift_indices)
+        window_size = self.frame_size
+        expanded_model = np.empty(shape=(num_drifts, *window_size))
         for i in drift_indices:
             s = self.drifts[i]
             expanded_model[i, :, :] = model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]]
         return expanded_model
 
     def compress(self, expanded_model, drift_indices):
+        window_size = self.frame_size
+
         model = np.zeros(shape=self.model_size)
         weights = np.zeros_like(model)
-
         for k, i in enumerate(drift_indices):
             s = self.drifts[i]
             model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += expanded_model[k]
@@ -106,13 +109,13 @@ class EMC(object):
 
 
 
-
 def make_drift_vectors(max_drift, origin='center'):
+    vectors = np.array([(x, y) for x in range(2*max_drift + 1) for y in range(2*max_drift + 1)])
+
     if origin == 'center':
-        return np.array([max_drift, max_drift]) \
-            - np.array([(x, y) for x in range(2*max_drift + 1) for y in range(2*max_drift + 1)])
+        return np.array([max_drift, max_drift]) - vectors
     elif origin == 'corner':
-        return np.array([(x, y) for x in range(2*max_drift + 1) for y in range(2*max_drift + 1)])
+        return vectors
     else:
         raise ValueError("origin must be either 'center' or 'corner'")
 
