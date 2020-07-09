@@ -22,6 +22,8 @@ class EMC(object):
     def initialize_model(self, init_model):
         """
         regularise the initial model, including pad the initial model according to img_size and max_drift.
+
+
         Parameters
         ----------
         init_model: str or numpy array
@@ -29,9 +31,9 @@ class EMC(object):
         -------
         the regularized initial model
         """
-
-        expected_model_size = (self.frame_size[0] + 2*self.max_drift + 1,
-                               self.frame_size[1] + 2*self.max_drift + 1)
+        # model_size - frame_size = 2*max_drift
+        expected_model_size = (self.frame_size[0] + 2*self.max_drift,
+                               self.frame_size[1] + 2*self.max_drift)
 
         if (type(init_model) is str) and init_model == 'random':
             return np.random.rand(*expected_model_size)
@@ -92,7 +94,7 @@ class EMC(object):
             model  [s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += expanded_model[k]
             weights[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += 1.0
 
-        return model / np.where(weights > 0., weights, 1.)
+        return model / np.where(weights>0., weights, 1.)
 
     def maximize(self, expanded_model):
         npix = self.frame_size[0] * self.frame_size[1]
