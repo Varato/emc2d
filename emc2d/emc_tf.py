@@ -3,7 +3,7 @@ import tensorflow as tf
 import numpy as np
 from numpy import ma
 
-from utils import make_drift_vectors
+from .utils import make_drift_vectors
 
 devices = tf.config.list_physical_devices('GPU')
 print("available gpu(s):", devices)

@@ -1,3 +1,4 @@
+from typing import Tuple, Union, Optional, Iterable
 import numpy as np
 from numpy import ma
 
@@ -6,20 +7,86 @@ from .transform import Drift
 
 
 class EMC(object):
-
-    def __init__(self, frames, max_drift, init_model='sum'):
+    def __init__(self, frames: np.ndarray, max_drift: int, init_model: Union[str, np.ndarray] = 'sum'):
+        """
+        Parameters
+        ----------
+        frames: ndarray in shape (n_frames, h, w)
+        max_drift: int
+        init_model: str or ndarray
+            If it's a string, it should be either 'sum' or 'random'
+        """
         self.frames = frames
         self.n_frames = frames.shape[0]
         self.frame_size = frames.shape[1:]
         self.max_drift = max_drift
-        self.curr_model = self.initialize_model(init_model)
-        self.model_size = self.curr_model.shape
+
+        # model_size - frame_size = 2*max_drift
+        self.model_size = (self.frame_size[0] + 2*self.max_drift,
+                           self.frame_size[1] + 2*self.max_drift)
+
+        # initialize model and assure its size is correct
+        model = self.initialize_model(init_model)
+        self.curr_model = EMC.model_reshape(model, self.model_size)
 
         self.drifts = make_drift_vectors(max_drift, origin='corner')
-        self.transforms = Drift(self.model_size, self.frame_size)
+        self.n_drifts_total = self.drifts.shape[0]
+        # this property is used to select a subset of drifts to be taken into account
+        self.drifts_in_use : Iterable[int] = np.arange(0, self.n_drifts_total)
         self._mask = None
 
-    def initialize_model(self, init_model):
+    def run(self, iterations: int, memsaving: bool = False):
+        for i in range(iterations):
+
+
+    def one_step(self, memsaving: bool = False):
+        membership_prabability = self.expand_memsaving() if memsaving else self.expand()
+        patterns = self.maximize(membership_prabability)
+        self.curr_model = self.compress(patterns)
+
+    def update_model(self, model):
+        if model.shape != self.model_size:
+            model = EMC.model_reshape(model, self.model_size)
+        self.curr_model = model
+
+    def using_drifts(self, drift_indices: Iterable[int]):
+        self.drifts_in_use = drift_indices
+
+
+    @staticmethod
+    def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int]):
+        """
+        Pad or crop the model so that its shape becomes expected_shape.
+
+        Parameters
+        ----------
+        model: 2D array
+        expected_shape: Tuple[int ,int]
+
+        Returns
+        -------
+        the model with expected shape.
+
+        """
+        init_shape = model.shape
+
+        # if any dimension of the given model is smaller than the expected shape, pad that dimension.
+        is_smaller = [l < lt for l, lt in zip(init_shape, expected_shape)]
+        if any(is_smaller):
+            px = expected_shape[0] - init_shape[0] if is_smaller[0] else 0
+            py = expected_shape[1] - init_shape[1] if is_smaller[1] else 0
+            pad_width = (
+                (px//2, px//2) if px%2 == 0 else (px//2 + 1, px//2), 
+                (py//2, py//2) if py%2 == 0 else (py//2 + 1, py//2))
+            return np.pad(model, pad_width, mode='constant', constant_values=0)
+        # if both dimensions of the given model is larger than or equal to the target size, crop it.
+        else:
+            margin = [init_shape[i] - expected_shape[i] for i in range(2)]
+            start_x = margin[0]//2 if margin[0]%2 == 0 else margin[0]//2 + 1
+            start_y = margin[1]//2 if margin[1]%2 == 0 else margin[1]//2 + 1
+            return model[start_x:start_x+expected_shape[0], start_y:start_y+expected_shape[1]]
+
+    def initialize_model(self, init_model: Union[str, np.ndarray]):
         """
         regularise the initial model, including pad the initial model according to img_size and max_drift.
 
@@ -31,7 +98,6 @@ class EMC(object):
         -------
         the regularized initial model
         """
-        # model_size - frame_size = 2*max_drift
         expected_model_size = (self.frame_size[0] + 2*self.max_drift,
                                self.frame_size[1] + 2*self.max_drift)
 
@@ -48,78 +114,122 @@ class EMC(object):
         else:
             raise ValueError("unknown initial model type. initial model can be 'random', 'sum', or a numpy array.")
 
-        init_shape = model.shape
-
         assert model is not None
+        return EMC.model_reshape(model, expected_model_size)
 
-        # if any dimension of the given model is smaller than the pexpected shape, pad that dimension.
-        is_smaller = [l < lt for l, lt in zip(init_shape, expected_model_size)]
-        if any(is_smaller):
-            px = expected_model_size[0] - init_shape[0] if is_smaller[0] else 0
-            py = expected_model_size[1] - init_shape[1] if is_smaller[1] else 0
-            pad_width = (
-                (px//2, px//2) if px%2 == 0 else (px//2 + 1, px//2), 
-                (py//2, py//2) if py%2 == 0 else (py//2 + 1, py//2))
-            return np.pad(model, pad_width, mode='constant', constant_values=0)
-        # if both dimensions of the given model is larger than or equal to the target size, crop it.
-        else:
-            margin = [init_shape[i] - expected_model_size[i] for i in range(2)]
-            start_x = margin[0]//2 if margin[0]%2 == 0 else margin[0]//2 + 1
-            start_y = margin[1]//2 if margin[1]%2 == 0 else margin[1]//2 + 1
-            return model[start_x:start_x+expected_model_size[0], start_y:start_y+expected_model_size[1]]
+    def expand(self) -> np.ndarray:
+        """
+        Expands current model into patterns, and compute the membership probabilities for each frame.
 
-    def expand(self, model, drift_indices=None):
-        # return self.transforms.forward(model, self.drifts)
-        if drift_indices is None:
-            drift_indices = np.arange(0, len(self.drifts))
+        Parameters
+        ----------
 
-        num_drifts = len(drift_indices)
+        Returns
+        -------
+        membership probabilities as a 2D array in shape (n_drifts, n_frames).
+        """
+        expanded_model = self._expand()
+        n_drifts = expanded_model.shape[0]
+        x_ki = self.frames.reshape(self.n_frames, -1) # (n_frames, n_pix)
+        w_ji = expanded_model.reshape(n_drifts, -1)   # (n_drifts, n_pix)
+        w_j = w_ji.sum(1, keepdims=True)              # (n_drifts, 1)
+        log_wji = np.log(w_ji + 1e-17)
+
+        LL = np.matmul(log_wji, x_ki.T) - w_j         # (n_drifts, n_frames)
+        LL = np.clip(LL - np.max(LL, axis=0, keepdims=True), -100.0, 1.)
+        p_jk = np.exp(LL)
+
+        membershipt_probability = p_jk / p_jk.sum(0)
+        return membershipt_probability
+
+    def expand_memsaving(self) -> np.ndarray:
+        """
+        Expands current model into patterns, and compute the membership probabilities for each frame.
+
+        It differs from `expand` in the following way: rather than store the full set of patterns, it
+        computes the membership probabilities on the fly. In this Python implementation, this saves memory
+        but may be time-inefficient.
+
+        Parameters
+        ----------
+        
+        Returns
+        -------
+        membership probabilities as a 2D array in shape (n_drifts, n_frames).
+        """
+        n_drifts = len(self.drifts_in_use)
         window_size = self.frame_size
-        expanded_model = np.zeros(shape=(num_drifts, *window_size), dtype=np.float)
-        for k, i in enumerate(drift_indices):
-            s = self.drifts[i]
-            expanded_model[k] = model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]]
-        return expanded_model
+        membership_probability = np.empty(shape=(n_drifts, self.n_frames), dtype=np.float)
+        x_ki = self.frames.reshape(self.n_frames, -1) # (n_frames, n_pix)
 
-    def compress(self, expanded_model, drift_indices=None):
-        # return self.transforms.backward(expanded_model, self.drifts)
-        if drift_indices is None:
-            drift_indices = np.arange(0, len(self.drifts))
+        for j, idx in enumerate(self.drifts_in_use):
+            s = self.drifts[idx]
+            pattern     = self.curr_model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]].reshape(-1,)
+            log_pattern = np.log(pattern + 1e-17)
+            LL = np.matmul(log_pattern, x_ki.T) - np.sum(pattern)  # (n_frames,)
+            LL = np.clip(LL - np.max(LL), -100.0, 1.)
+            membership_probability[j, :] = np.exp(LL)
+
+        membership_probability /= membership_probability.sum(0, keepdims=True)
+
+        return membership_probability
+
+    def compress(self, expanded_model: np.ndarray) -> np.ndarray:
+        """
+        Compresses an expaned_model (patterns) into a model according to the corresponding drifts.
+
+        Parameters
+        ----------
+        expanded_model: 3D array in shape (n_drifts, h, w)
+    
+        Returns
+        -------
+        an assembled model as 2D array
+        """
 
         window_size = self.frame_size
         model   = np.zeros(shape=self.model_size, dtype=np.float)
         weights = np.zeros(shape=self.model_size, dtype=np.float)
-        for k, i in enumerate(drift_indices):
+        for k, i in enumerate(self.drifts_in_use):
             s = self.drifts[i]
             model  [s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += expanded_model[k]
             weights[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]] += 1.0
 
         return model / np.where(weights>0., weights, 1.)
 
-    def maximize(self, expanded_model):
-        npix = self.frame_size[0] * self.frame_size[1]
-        w_ji = expanded_model.reshape(-1, npix)  # (num_transforms, n*m)
-        if self._mask is not None:
-            w_j = np.sum(w_ji[:, self._mask], axis=1, keepdims=True)
-        else:
-            w_j = np.sum(w_ji, axis=1, keepdims=True)  # (num_transforms, 1)
+    def maximize(self, membership_probability: np.ndarray):
+        """
+        Update patterns from frames according to the given membership_prabability.
 
-        logw_ji = ma.log(w_ji).filled(-39)  # (num_transforms, n*m)
+        Parameters
+        ----------
+        membership_probability: 2D array in shape (n_drifts, n_frames)
+            the membership probabilities for each frame against each drift.
 
-        x_ki = self.frame_size.reshape(-1, npix)
-        # (num_transforms, num_frames) = (num_transforms, n*m) @ (n*m, num_frames) - (num_transforms, 1)
-        p_jk = logw_ji @ x_ki.T - w_j
-        p_jk = np.clip(p_jk - np.max(p_jk, axis=0, keepdims=True), -100.0, 1.)
-        p_jk = np.exp(p_jk)
-        p_jk /= np.sum(p_jk, axis=0, keepdims=True)
+        Returns
+        -------
+        the updated patterns in shape (n_drifts, *frame_size)
+        """
 
-        weights_jk = p_jk / p_jk.sum(1, keepdims=True)
+        n_drifts = membership_probability.shape[0]
+        weights_jk = membership_probability / membership_probability.sum(1) # (n_drifts, n_frames)
+        x_ki = self.frames.reshape(self.n_frames, -1)                       # (n_frames, n_pix)
 
-        new_w_ji = weights_jk @ x_ki  # (num_transforms, n*m)
-        new_expanded_model = new_w_ji.reshape(*expanded_model.shape)
+        new_w_ji = np.matmul(weights_jk, x_ki)  # (n_drifts, n_pix)
+        new_expanded_model = new_w_ji.reshape(n_drifts, *self.frame_size)
 
-        return new_expanded_model, p_jk
+        return new_expanded_model
 
+    def _expand(self) -> np.ndarray:
+        n_drifts = len(self.drifts_in_use)
+
+        window_size = self.frame_size
+        expanded_model = np.empty(shape=(n_drifts, *window_size), dtype=np.float)
+        for j, i in enumerate(self.drifts_in_use):
+            s = self.drifts[i]
+            expanded_model[j] = self.curr_model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]]
+
+        return expanded_model
 
 
 

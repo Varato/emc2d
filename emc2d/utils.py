@@ -1,6 +1,6 @@
 import numpy as np
 
-def make_drift_vectors(max_drift, origin='center'):
+def make_drift_vectors(max_drift: int, origin: str = 'center') -> np.ndarray:
     vectors = np.array([(x, y) for x in range(2*max_drift + 1) for y in range(2*max_drift + 1)], dtype=np.int)
 
     if origin == 'center':

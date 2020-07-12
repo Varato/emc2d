@@ -21,8 +21,7 @@ class EmcTestCase(unittest.TestCase):
         self.assertEqual(self.emc.frame_size, (128, 128), "wrong size of frames")
 
     def test_expand_compress_closure(self):
-        expanded_model = self.emc.expand(self.model)
+        expanded_model = self.emc._expand()
         recon_model = self.emc.compress(expanded_model)
         diff = np.abs(self.model - recon_model)
         self.assertTrue(np.all(diff < 1e-10), "compress cannot reconstruct expanded model")
-        
