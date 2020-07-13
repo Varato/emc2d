@@ -1,23 +1,32 @@
 from typing import Tuple, Union, List
-import numpy as np
 import time
+import numpy as np
+from scipy.sparse import csr_matrix
+
+import logging
 
 from .utils import make_drift_vectors
 
+logger = logging.getLogger('emc2d')
+logger.setLevel(logging.DEBUG)
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+logger.addHandler(ch)
+
 
 class EMC(object):
-    def __init__(self, frames: np.ndarray, max_drift: int, init_model: Union[str, np.ndarray] = 'sum'):
+    def __init__(self, frames: Union[np.ndarray, csr_matrix], frame_size: Tuple[int, int], max_drift: int, init_model: Union[str, np.ndarray] = 'sum'):
         """
         Parameters
         ----------
-        frames: ndarray in shape (n_frames, h, w)
+        frames: ndarray or csr_matrix in shape (n_frames, h, w) or (n_frames, h*w)
         max_drift: int
         init_model: str or ndarray
             If it's a string, it should be either 'sum' or 'random'
         """
-        self.frames = frames
+        self.frames = EMC.vectorize_data(frames)  # (n_frames, n_pix)
         self.n_frames = frames.shape[0]
-        self.frame_size = frames.shape[1:]
+        self.frame_size = frame_size
         self.max_drift = max_drift
 
         # model_size - frame_size = 2*max_drift
@@ -35,15 +44,18 @@ class EMC(object):
         self._mask = None
 
     def run(self, iterations: int, memsaving: bool = False, verbose=True):
-        history = {'model_power': []}
+        history = {'model_mean': [], 'convergence':[]}
         for i in range(iterations):
+            last_model = self.curr_model
             start = time.time()
             self.one_step(memsaving)
             end = time.time()
             power = self.curr_model.mean()
+            convergence = np.mean((last_model - self.curr_model)**2)
             if verbose:
-                print(f"iter {i+1} / {iterations}: model_power = {power:.3f}, time used = {end-start:.3f} s")
-            history['model_power'].append(self.curr_model.mean())
+                logger.info(f"iter {i+1} / {iterations}: model mean = {power:.3f}, time used = {end-start:.3f} s")
+            history['model_mean'].append(power)
+            history['convergence'].append(convergence)
         return history
 
     def one_step(self, memsaving: bool = False):
@@ -112,7 +124,7 @@ class EMC(object):
 
         model = None
         if (type(init_model) is str) and init_model == 'sum':
-            model = self.frames.sum(0)
+            model = self.frames.sum(0).reshape(*self.frame_size)
         elif type(init_model) is np.ndarray:
             if not init_model.ndim == 2:
                 raise ValueError("initial_model has to be a 2D array.")
@@ -136,12 +148,11 @@ class EMC(object):
         """
         expanded_model = self._expand()
         n_drifts = expanded_model.shape[0]
-        x_ki = self.frames.reshape(self.n_frames, -1)  # (n_frames, n_pix)
         w_ji = expanded_model.reshape(n_drifts, -1)    # (n_drifts, n_pix)
         w_j = w_ji.sum(1, keepdims=True)               # (n_drifts, 1)
         log_wji = np.log(w_ji + 1e-17)
 
-        LL = np.matmul(log_wji, x_ki.T) - w_j         # (n_drifts, n_frames)
+        LL = log_wji @ self.frames.T - w_j         # (n_drifts, n_frames)
         LL = np.clip(LL - np.max(LL, axis=0, keepdims=True), -100.0, 1.)
         p_jk = np.exp(LL)
 
@@ -154,7 +165,7 @@ class EMC(object):
 
         It differs from `expand` in the following way: rather than store the full set of patterns, it
         computes the membership probabilities on the fly. In this Python implementation, this saves memory
-        but may be time-inefficient.
+        but is time-inefficient.
 
         Parameters
         ----------
@@ -166,13 +177,12 @@ class EMC(object):
         n_drifts = len(self.drifts_in_use)
         window_size = self.frame_size
         membership_probability = np.empty(shape=(n_drifts, self.n_frames), dtype=np.float)
-        x_ki = self.frames.reshape(self.n_frames, -1) # (n_frames, n_pix)
 
         for j, idx in enumerate(self.drifts_in_use):
             s = self.drifts[idx]
             pattern     = self.curr_model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]].reshape(-1,)
             log_pattern = np.log(pattern + 1e-17)
-            LL = np.matmul(log_pattern, x_ki.T) - np.sum(pattern)  # (n_frames,)
+            LL = log_pattern @ self.frames.T - np.sum(pattern)  # (n_frames,)
             LL = np.clip(LL - np.max(LL), -100.0, 1.)
             membership_probability[j, :] = np.exp(LL)
 
@@ -219,9 +229,8 @@ class EMC(object):
 
         n_drifts = membership_probability.shape[0]
         weights_jk = membership_probability / membership_probability.sum(1, keepdims=True) # (n_drifts, n_frames)
-        x_ki = self.frames.reshape(self.n_frames, -1)                       # (n_frames, n_pix)
 
-        new_w_ji = np.matmul(weights_jk, x_ki)  # (n_drifts, n_pix)
+        new_w_ji = weights_jk @ self.frames  # (n_drifts, n_frames) @ (n_frames, n_pix) = (n_drifts, n_pix)
         new_expanded_model = new_w_ji.reshape(n_drifts, *self.frame_size)
 
         return new_expanded_model
@@ -236,6 +245,40 @@ class EMC(object):
             expanded_model[j] = self.curr_model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]]
 
         return expanded_model
+
+    @staticmethod
+    def vectorize_data(frames: Union[np.ndarray, csr_matrix]):
+        """
+        initialized the data.
+        Parameters
+        ----------
+        frames: numpy array
+            shape: (_num_imgs, *_img_size)
+        Notes
+        -----
+        It checks if the "dense_data" is sparse enough, then decides whether csr sparse format should be used or not.
+        If "dense_data" is not very sparse, then overhead of scipy.sparse slows down the procedure "maximize",
+        while the data size is huge (e.g. 20000 images), the speed-up of using csr format can be remarkable.
+        """
+        if isinstance(frames, csr_matrix):
+            if frames.ndim == 2:
+                return frames
+            else:
+                raise NotImplementedError("csr_matrix only supports 2D array")
+        elif isinstance(frames, np.ndarray):
+            n_frames = frames.shape[0]
+            vec_data = frames.reshape(n_frames, -1)
+            nnz = np.count_nonzero(vec_data)
+            data_size = vec_data.shape[0] * vec_data.shape[1]
+            ratio = nnz / data_size
+            if ratio < 0.01:
+                logger.info(f"nnz / data_size = {100*ratio:.2f}%, using csr sparse data format")
+                return csr_matrix(vec_data)
+            else:
+                logger.info(f"nnz / data_size = {100*ratio:.2f}%, using dense data format")
+                return vec_data
+
+
 
 
 
