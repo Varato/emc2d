@@ -1,9 +1,8 @@
-from typing import Tuple, Union, Optional, Iterable
+from typing import Tuple, Union, List
 import numpy as np
-from numpy import ma
+import time
 
 from .utils import make_drift_vectors
-from .transform import Drift
 
 
 class EMC(object):
@@ -32,12 +31,20 @@ class EMC(object):
         self.drifts = make_drift_vectors(max_drift, origin='corner')
         self.n_drifts_total = self.drifts.shape[0]
         # this property is used to select a subset of drifts to be taken into account
-        self.drifts_in_use : Iterable[int] = np.arange(0, self.n_drifts_total)
+        self.drifts_in_use: List[int] = list(range(0, self.n_drifts_total))
         self._mask = None
 
-    def run(self, iterations: int, memsaving: bool = False):
+    def run(self, iterations: int, memsaving: bool = False, verbose=True):
+        history = {'model_power': []}
         for i in range(iterations):
-
+            start = time.time()
+            self.one_step(memsaving)
+            end = time.time()
+            power = self.curr_model.mean()
+            if verbose:
+                print(f"iter {i+1} / {iterations}: model_power = {power:.3f}, time used = {end-start:.3f} s")
+            history['model_power'].append(self.curr_model.mean())
+        return history
 
     def one_step(self, memsaving: bool = False):
         membership_prabability = self.expand_memsaving() if memsaving else self.expand()
@@ -49,9 +56,8 @@ class EMC(object):
             model = EMC.model_reshape(model, self.model_size)
         self.curr_model = model
 
-    def using_drifts(self, drift_indices: Iterable[int]):
+    def using_drifts(self, drift_indices: List[int]):
         self.drifts_in_use = drift_indices
-
 
     @staticmethod
     def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int]):
@@ -130,9 +136,9 @@ class EMC(object):
         """
         expanded_model = self._expand()
         n_drifts = expanded_model.shape[0]
-        x_ki = self.frames.reshape(self.n_frames, -1) # (n_frames, n_pix)
-        w_ji = expanded_model.reshape(n_drifts, -1)   # (n_drifts, n_pix)
-        w_j = w_ji.sum(1, keepdims=True)              # (n_drifts, 1)
+        x_ki = self.frames.reshape(self.n_frames, -1)  # (n_frames, n_pix)
+        w_ji = expanded_model.reshape(n_drifts, -1)    # (n_drifts, n_pix)
+        w_j = w_ji.sum(1, keepdims=True)               # (n_drifts, 1)
         log_wji = np.log(w_ji + 1e-17)
 
         LL = np.matmul(log_wji, x_ki.T) - w_j         # (n_drifts, n_frames)
@@ -212,7 +218,7 @@ class EMC(object):
         """
 
         n_drifts = membership_probability.shape[0]
-        weights_jk = membership_probability / membership_probability.sum(1) # (n_drifts, n_frames)
+        weights_jk = membership_probability / membership_probability.sum(1, keepdims=True) # (n_drifts, n_frames)
         x_ki = self.frames.reshape(self.n_frames, -1)                       # (n_frames, n_pix)
 
         new_w_ji = np.matmul(weights_jk, x_ki)  # (n_drifts, n_pix)

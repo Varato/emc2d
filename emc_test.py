@@ -25,3 +25,10 @@ class EmcTestCase(unittest.TestCase):
         recon_model = self.emc.compress(expanded_model)
         diff = np.abs(self.model - recon_model)
         self.assertTrue(np.all(diff < 1e-10), "compress cannot reconstruct expanded model")
+
+    def test_run_through(self):
+        history = self.emc.run(iterations=30)
+        fig, axes = plt.subplots(ncols=2)
+        axes[0].plot(history['model_power'])
+        axes[1].imshow(self.emc.curr_model)
+        plt.show()
