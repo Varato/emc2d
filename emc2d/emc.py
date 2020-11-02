@@ -1,6 +1,6 @@
-from typing import Tuple, Union, List
 import time
 import numpy as np
+from typing import Tuple, Union, List
 from scipy.sparse import csr_matrix
 
 import logging
@@ -42,6 +42,7 @@ class EMC(object):
         # this property is used to select a subset of drifts to be taken into account
         self.drifts_in_use: List[int] = list(range(0, self.n_drifts_total))
         self._mask = None
+        self.membership_prabability = None
 
     def run(self, iterations: int, memsaving: bool = False, verbose=True):
         history = {'model_mean': [], 'convergence':[]}
@@ -59,8 +60,8 @@ class EMC(object):
         return history
 
     def one_step(self, memsaving: bool = False):
-        membership_prabability = self.expand_memsaving() if memsaving else self.expand()
-        patterns = self.maximize(membership_prabability)
+        self.membership_prabability = self.expand_memsaving() if memsaving else self.expand()
+        patterns = self.maximize(self.membership_prabability)
         self.curr_model = self.compress(patterns)
 
     def update_model(self, model):
@@ -152,8 +153,8 @@ class EMC(object):
         w_j = w_ji.sum(1, keepdims=True)               # (n_drifts, 1)
         log_wji = np.log(w_ji + 1e-17)
 
-        LL = log_wji @ self.frames.T - w_j         # (n_drifts, n_frames)
-        LL = np.clip(LL - np.max(LL, axis=0, keepdims=True), -100.0, 1.)
+        LL = self.frames.dot(log_wji.T).T - w_j         # (n_drifts, n_frames)
+        LL = np.clip(LL - np.max(LL, axis=0, keepdims=True), -600.0, 1.)
         p_jk = np.exp(LL)
 
         membershipt_probability = p_jk / p_jk.sum(0)
@@ -183,7 +184,7 @@ class EMC(object):
             pattern     = self.curr_model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]].reshape(-1,)
             log_pattern = np.log(pattern + 1e-17)
             LL = log_pattern @ self.frames.T - np.sum(pattern)  # (n_frames,)
-            LL = np.clip(LL - np.max(LL), -100.0, 1.)
+            LL = np.clip(LL - np.max(LL), -600.0, 1.)
             membership_probability[j, :] = np.exp(LL)
 
         membership_probability /= membership_probability.sum(0, keepdims=True)
@@ -277,6 +278,27 @@ class EMC(object):
             else:
                 logger.info(f"nnz / data_size = {100*ratio:.2f}%, using dense data format")
                 return vec_data
+
+    def corrected_drifts(self, centre_is_origin=True, first_frame_is_centre=True, ):
+        if self.membership_prabability is None:
+            raise RuntimeError("EMC has to be run before evaluating drifts")
+        
+        frame_position_indices = np.argmax(self.membership_prabability, axis=0)
+        frame_positions = np.array([self.drifts[self.drifts_in_use[i]] for i in frame_position_indices])
+        if centre_is_origin:
+            frame_positions -= self.max_drift
+        if first_frame_is_centre:
+            frame_positions -= frame_positions[0]
+        return frame_positions
+
+    def recentred_model(self):
+        if self.membership_prabability is None:
+            raise RuntimeError("EMC has to be run before evaluating drifts")
+        
+        first_frame_position_index = np.argmax(self.membership_prabability[:, 0])
+        first_frame_position = self.drifts[self.drifts_in_use[first_frame_position_index]]
+        return np.roll(self.curr_model, shift=self.max_drift-first_frame_position, axis=(-2, -1))
+
 
 
 

@@ -1,9 +1,9 @@
 from setuptools import setup, find_packages, Extension
 import numpy as np
 
-extensions = Extension("emc2d.pykernels",
-                        sources=[],
-                        include_dir=[np.get_include()])
+# extensions = Extension("emc2d.pykernels",
+#                         sources=[],
+#                         include_dir=[np.get_include()])
 
 setup(
     name="emc2d",

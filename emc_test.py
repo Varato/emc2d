@@ -8,6 +8,7 @@ from emc2d.transform import Drift
 from emc2d.utils import make_drift_vectors
 from simtools import build_model, frames_with_random_walk_drifts, random_walk_trajectory
 
+np.random.seed(2020)
 
 class EmcTestCase(unittest.TestCase):
     def setUp(self):
@@ -79,7 +80,7 @@ class EMCSparseTestCase(unittest.TestCase):
         img = np.load("data/smiley.npy")
         trj = random_walk_trajectory(max_drift=10, num_steps=200)
         model = build_model(img, model_size=(148, 148), mean_count=0.2)
-        self.frames = frames_with_random_walk_drifts(model, img_size=(128, 128), random_walk_trj=trj, mean_count=0.01)
+        self.frames = frames_with_random_walk_drifts(model, img_size=(128, 128), random_walk_trj=trj, mean_count=0.008)
         self.emc = EMC(
             frames=self.frames, 
             frame_size=(128, 128), 
@@ -92,7 +93,7 @@ class EMCSparseTestCase(unittest.TestCase):
         axes[0].plot(history['model_mean'])
         axes[1].plot(history['convergence'])
         axes[2].imshow(self.frames.sum(0))
-        axes[3].imshow(self.emc.curr_model)
+        axes[3].imshow(self.emc.curr_model, vmin=0, vmax=self.emc.curr_model.mean())
 
         axes[0].set_title('model mean')
         axes[1].set_title('convergence')

@@ -1,14 +1,102 @@
-import tensorflow as tf
-
+import torch
 import numpy as np
-from numpy import ma
 
-from .utils import make_drift_vectors
+from collections import namedtuple
 
-devices = tf.config.list_physical_devices('GPU')
-print("available gpu(s):", devices)
+from .utils import make_drift_vectors, make_emc_translations
+from .transform import make_translation_series
 
-tf.debugging.set_log_device_placement(True)
+
+class MotionSpaceValueMaps:
+    def __init__(self, val, xy):
+        if val.shape[1] != xy.shape[1]:
+            raise ValueError("val and xy must have the same second dimension")
+        self.val = val  # (N, M)
+        self.xy = xy    # (2, M)
+        self.num_maps = val.shape[0]
+        self.num_points = xy.shape[1]
+
+
+def make_emc_translations(max_drift: Union[Tuple[int, int], int], coarse_graining: int = 1):
+    """
+    Makes an array of all per-pixel (x, y) translations within -max_drift to max_drift.
+
+    Parameters
+    ----------
+    max_drift: Union[Tuple[int, int], int]
+    coarse_graining: int
+
+    Returns
+    -------
+    an array with shape (2, M), where M is the number of traslations being considered.
+    """
+    xm, ym = (max_drift, max_drift) if type(max_drift) is int else max_drift
+    x_range = torch.arange(-xm, xm+1, coarse_graining)
+    y_range = torch.arange(-ym, ym+1, coarse_graining)
+    xx, yy = torch.meshgrid(x_range, y_range)
+    return torch.stack([xx.flatten(), yy.flatten()])
+
+
+def translate(img, x=0, y=0):
+    xx = int(x) % img.shape[-2]
+    yy = int(y) % img.shape[-1]
+    ret = torch.roll(img, shifts=(xx, yy), dims=(-2, -1))
+    return ret
+
+
+def centre_crop(img, size):
+    sx, sy = (size, size) if type(size) is int else size
+    lx, ly = img.shape[-2:]
+    mx, my = (lx - sx) // 2, (ly - sy) // 2
+        
+    ret = img[mx:mx+sx, my:my+sy]
+    return ret
+
+
+def make_translation_series(intensity, frame_size, trans):
+    # trans (2, N) or (1, N). latter means 1D case
+    if trans.ndim == 1:
+        return torch.stack([
+            centre_crop(
+                translate(intensity, int(x), 0), size=frame_size) for x in trans.squeeze()])
+    elif trans.shape[0] == 2:
+        return torch.stack([
+            centre_crop(
+                translate(intensity, int(x), int(y)), size=frame_size) for x, y in zip(trans[0], trans[1])])
+    else:
+        raise ValueError
+
+
+def compute_log_likelihood_maps(intensity, frames, max_drift, coarse_graining):
+    # frames: (N, h, w)
+    # translations: (2, M)
+    N = frames.shape[0]
+    M = translations.shape[1]
+    frame_size = frames.shape[-2:]
+    translations = make_emc_translations(max_drift, coarse_graining)
+    trans_series = make_translation_series(intensity, frame_size, translations) # (M, h, w)
+    
+    w_ji = trans_series.reshape(M, -1)  # (M, n_pix)
+    y_ji = frames.reshape(N, -1)        # (N, n_pix)
+    
+    w_j = w_ji.sum(-1, keepdims=True)  #(M, 1)
+    log_w_ji = np.log(w_ji + 1e-17)    #(M, n_pix)
+    
+    ll = log_w_ji @ y_ji.T - w_j         # (M, N)
+    ll = torch.clamp(ll - torch.max(ll, dim=0, keepdim=True)[0], -100.0, 1.).T  # (N, M)
+    
+    return MotionSpaceValueMaps(ll, translations)
+
+
+def find_max_log_likelihood_traj(log_likelihood_maps: MotionSpaceValueMaps):
+    """
+    log_likelihood_maps.val: (N, M)
+    log_likelihood_maps.xy: (2, M)
+    """
+    idx = torch.argmax(log_likelihood_maps.val, dim=1)
+    traj = log_likelihood_maps.xy[:, idx]
+    return traj  # (2, N)
+
 
 class EMC(object):
 
