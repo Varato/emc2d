@@ -41,8 +41,8 @@ class EMC(object):
         self.n_drifts_total = self.drifts.shape[0]
         # this property is used to select a subset of drifts to be taken into account
         self.drifts_in_use: List[int] = list(range(0, self.n_drifts_total))
-        self._mask = None
         self.membership_prabability = None
+        self._mask = None
 
     def run(self, iterations: int, memsaving: bool = False, verbose=True):
         history = {'model_mean': [], 'convergence':[]}
@@ -147,7 +147,7 @@ class EMC(object):
         -------
         membership probabilities as a 2D array in shape (n_drifts, n_frames).
         """
-        expanded_model = self._expand()
+        expanded_model = self._expand(self.curr_model)
         n_drifts = expanded_model.shape[0]
         w_ji = expanded_model.reshape(n_drifts, -1)    # (n_drifts, n_pix)
         w_j = w_ji.sum(1, keepdims=True)               # (n_drifts, 1)
@@ -236,14 +236,14 @@ class EMC(object):
 
         return new_expanded_model
 
-    def _expand(self) -> np.ndarray:
+    def _expand(self, model) -> np.ndarray:
         n_drifts = len(self.drifts_in_use)
 
         window_size = self.frame_size
         expanded_model = np.empty(shape=(n_drifts, *window_size), dtype=np.float)
         for j, i in enumerate(self.drifts_in_use):
             s = self.drifts[i]
-            expanded_model[j] = self.curr_model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]]
+            expanded_model[j] = model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]]
 
         return expanded_model
 
@@ -279,25 +279,55 @@ class EMC(object):
                 logger.info(f"nnz / data_size = {100*ratio:.2f}%, using dense data format")
                 return vec_data
 
-    def corrected_drifts(self, centre_is_origin=True, first_frame_is_centre=True, ):
+    def maximum_likelihood_drifts(self):
         if self.membership_prabability is None:
             raise RuntimeError("EMC has to be run before evaluating drifts")
         
         frame_position_indices = np.argmax(self.membership_prabability, axis=0)
         frame_positions = np.array([self.drifts[self.drifts_in_use[i]] for i in frame_position_indices])
-        if centre_is_origin:
-            frame_positions -= self.max_drift
-        if first_frame_is_centre:
-            frame_positions -= frame_positions[0]
         return frame_positions
 
-    def recentred_model(self):
-        if self.membership_prabability is None:
-            raise RuntimeError("EMC has to be run before evaluating drifts")
-        
-        first_frame_position_index = np.argmax(self.membership_prabability[:, 0])
-        first_frame_position = self.drifts[self.drifts_in_use[first_frame_position_index]]
-        return np.roll(self.curr_model, shift=self.max_drift-first_frame_position, axis=(-2, -1))
+    def calibrate_drifts_with_reference(self, reference, centre_is_origin=True):
+        num_drifts = len(self.drifts_in_use)
+        expanded_model = self._expand(self.curr_model).reshape(num_drifts, -1)
+        expanded_ref = self._expand(reference).reshape(num_drifts, -1)
+
+        centre_drift_index = self.max_drift + self.max_drift * (2*self.max_drift + 1)
+        if centre_drift_index not in self.drifts_in_use:
+            raise RuntimeError("centre drift is not within the EMC's view. Check the EMC.drift_in_use property")
+        idx = self.drifts_in_use.index(centre_drift_index)
+        centre_ref = expanded_ref[idx] # (N,)
+
+        n1 = np.linalg.norm(centre_ref)
+        n2 = np.linalg.norm(expanded_model, axis=1, keepdims=True)  #(M, 1)
+
+        v1 = centre_ref / n1         #(N,)
+        v2 = expanded_model / n2     #(M, N)
+
+        diff = np.linalg.norm(v1[None, :] - v2, axis=1) #(M, )
+        recon_drift_centre_index = np.argmin(diff)
+        recon_centre_drift = self.drifts[self.drifts_in_use[recon_drift_centre_index]]
+
+        calibrating_shift = np.array([self.max_drift, self.max_drift]) - recon_centre_drift 
+        return calibrating_shift
+
+    def centre_by_first_frame(self, centre_is_origin=True):
+        frame_positions = self.maximum_likelihood_drifts()
+        first_frame_position = frame_positions[0]
+        calibrating_shift = np.array([self.max_drift, self.max_drift]) - first_frame_position
+        frame_positions += calibrating_shift
+        if centre_is_origin:
+            frame_positions -= self.max_drift
+        return frame_positions, np.roll(self.curr_model, shift=calibrating_shift, axis=(-2, -1))
+
+    def centre_by_reference(self, reference, centre_is_origin=True):
+        frame_positions = self.maximum_likelihood_drifts()
+
+        calibrating_shift = self.calibrate_drifts_with_reference(reference)
+        frame_positions += calibrating_shift
+        if centre_is_origin:
+            frame_positions -= self.max_drift
+        return frame_positions, np.roll(self.curr_model, shift=calibrating_shift, axis=(-2, -1))
 
 
 
