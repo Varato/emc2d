@@ -6,11 +6,7 @@ from scipy.sparse import csr_matrix
 from .utils import make_drift_vectors
 
 
-logger = logging.getLogger('emc2d')
-logger.setLevel(logging.DEBUG)
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-logger.addHandler(ch)
+logger = logging.getLogger('emc2d.misc')
 
 
 def maximum_likelihood_drifts(membership_prabability, all_drifts, drifts_in_use: List[int]):

@@ -2,20 +2,15 @@ import time
 import numpy as np
 from typing import Tuple, Union, List
 from scipy.sparse import csr_matrix
+from scipy.special import softmax
 
 import logging
 
 from .misc import *
 
-logger = logging.getLogger('emc2d')
-logger.setLevel(logging.DEBUG)
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-logger.addHandler(ch)
 
-
-class EMC(object):
-    def __init__(self, frames: Union[np.ndarray, csr_matrix], frame_size: Tuple[int, int], max_drift: int, init_model: Union[str, np.ndarray] = 'sum'):
+class EMCGreedy(object):
+    def __init__(self, frames: np.ndarray, frame_size: Tuple[int, int], max_drift: int, init_model: Union[str, np.ndarray] = 'sum'):
         """
         Parameters
         ----------
@@ -24,8 +19,8 @@ class EMC(object):
         init_model: str or ndarray
             If it's a string, it should be either 'sum' or 'random'
         """
-        self.frames = vectorize_data(frames)  # (num_frames, n_pix)
         self.num_frames = frames.shape[0]
+        self.frames = frames.reshape(self.num_frames, -1)  # (n_frames, n_pix)
         self.frame_size = frame_size
         self.max_drift = max_drift
 
@@ -45,7 +40,10 @@ class EMC(object):
         self.drifts_in_use = list(range(len(self.ec_op.all_drifts)))
 
         # to hold the membership probability matrix
-        self.membership_prabability = None
+        # self.membership_prabability = None
+
+        # to hold the estimated traj
+        self.curr_traj = None
 
     def run(self, iterations: int, verbose=True):
         history = {'model_mean': [], 'convergence':[]}
@@ -62,11 +60,53 @@ class EMC(object):
             history['convergence'].append(convergence)
         return history
 
-    def one_step(self):
+
+    def one_step(self, searching_radias: int):
+        self.curr_traj = self.find_trajectory(searching_radias)
+        self.curr_model = self.merge_frames(self.curr_traj)
+
+
+    def estimate_first_frame_position(self):
+        dim_x, dim_y = (2*self.max_drift + 1, ) * 2
+
+        first_frame = self.frames[0][:, None]  #(n_pix, 1)
         expanded_model = self.ec_op.expand(self.curr_model, self.frame_size, self.drifts_in_use, flatten=True)
-        self.membership_prabability = compute_membership_probability(expanded_model, self.frames)
-        new_expanded_model = merge_frames_into_model(self.frames, self.frame_size, self.membership_prabability)
-        self.curr_model = self.ec_op.compress(new_expanded_model, self.model_size, self.drifts_in_use)
+        
+        ll = np.log(expanded_model + 1e-13) @ first_frame - expanded_model.sum(1, keepdims=True)
+        pos_dist = softmax(ll.flatten())
+        pos_idx = np.argmax(pos_dist)
+        
+        x, y = pos_idx // dim_y, pos_idx % dim_y
+        return x, y
+
+    def find_trajectory(self, searching_radias: int = 5):
+        dim_x, dim_y = (2*self.max_drift + 1, ) * 2
+        x, y = self.estimate_first_frame_position()
+
+        traj = np.empty(shape=(self.num_frames, 2), dtype=np.int)
+        traj[0] = [x, y]
+        for i in range(1, self.num_frames):
+            nbs_x, nbs_y = find_neighbours(dim_x, dim_y, x, y, searching_radias)
+            nbs_idx = (nbs_x * dim_y + nbs_y).flatten()
+            sparse_expanded_model = self.ec_op.expand(self.curr_model, self.frame_size, nbs_idx, flatten=True)
+            ll = np.log(sparse_expanded_model + 1e-13) @ self.frames[i][:, None] - sparse_expanded_model.sum(1, keepdims=True)
+            pos_dist = softmax(ll.flatten())
+            pos_idx = nbs_idx[np.argmax(pos_dist)]
+            x, y = pos_idx // dim_y, pos_idx % dim_y
+            traj[i] = [x, y]
+        return traj
+
+    def merge_frames(self, trajectory):
+        frames = self.frames.reshape(self.num_frames, *self.frame_size)
+
+        model   = np.zeros(shape=self.model_size, dtype=np.float)
+        weights = np.zeros(shape=self.model_size, dtype=np.float)
+        for i in range(self.num_frames):
+            s = trajectory[i]
+            model  [s[0]:s[0]+self.frame_size[0], s[1]:s[1]+self.frame_size[1]] += frames[i]
+            weights[s[0]:s[0]+self.frame_size[0], s[1]:s[1]+self.frame_size[1]] += 1.0
+        return model / np.where(weights>0., weights, 1.)
+
 
     def initialize_model(self, init_model: Union[str, np.ndarray]):
         """
@@ -110,50 +150,26 @@ class EMC(object):
         return recon_drifts, np.roll(self.curr_model, shift=calibrating_drift, axis=(-2, -1))
 
     def centre_by_reference(self, reference, centre_is_origin=True):
-        frame_positions = self.maximum_likelihood_drifts()
         calibrating_drift, recon_drifts = centre_by_reference(
             frame_positions, self.max_drift, 
             self.frame_size, self.curr_model, reference, self.drifts_in_use, centre_is_origin)
         return recon_drifts, np.roll(self.curr_model, shift=calibrating_drift, axis=(-2, -1))
 
-    # def expand_memsaving(self) -> np.ndarray:
-    #     """
-    #     Expands current model into patterns, and compute the membership probabilities for each frame.
 
-    #     It differs from `expand` in the following way: rather than store the full set of patterns, it
-    #     computes the membership probabilities on the fly. In this Python implementation, this saves memory
-    #     but is time-inefficient.
-
-    #     Parameters
-    #     ----------
+def find_neighbours(dim_x, dim_y, x, y, n=1):
+    if n <= x <= dim_x - 1 - n:
+        xi = range(-n, n+1)
+    elif x >= n:
+        xi = range(-n, dim_x-x)
+    else:
+        xi = range(-x, n+1)
         
-    #     Returns
-    #     -------
-    #     membership probabilities as a 2D array in shape (n_drifts, n_frames).
-    #     """
-    #     n_drifts = len(self.drifts_in_use)
-    #     window_size = self.frame_size
-    #     membership_probability = np.empty(shape=(n_drifts, self.n_frames), dtype=np.float)
-
-    #     for j, idx in enumerate(self.drifts_in_use):
-    #         s = self.drifts[idx]
-    #         pattern     = self.curr_model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]].reshape(-1,)
-    #         log_pattern = np.log(pattern + 1e-17)
-    #         LL = log_pattern @ self.frames.T - np.sum(pattern)  # (n_frames,)
-    #         LL = np.clip(LL - np.max(LL), -600.0, 1.)
-    #         membership_probability[j, :] = np.exp(LL)
-
-    #     membership_probability /= membership_probability.sum(0, keepdims=True)
-
-    #     return membership_probability
-
-    
-
-
-
-
-
-
-
-
-
+    if n <= y <= dim_y - 1 - n:
+        yi = range(-n, n+1)
+    elif y >= n:
+        yi = range(-n, dim_y-y)
+    else:
+        yi = range(-y, n+1)
+        
+    nb_idx = np.array([[(x + a, y + b) for b in yi] for a in xi])
+    return nb_idx[..., 0], nb_idx[..., 1]
