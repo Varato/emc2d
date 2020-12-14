@@ -1,12 +1,9 @@
-pybind11 is added using `git submodule add`. 
+# emc2d
 
-After cloning this repository, run the following git commands in addition.
-1. `git submodule init`
-2. `git submodule update`
+A Python3 implementation for EMC motion correction for low-dose TEM images.
 
-See [here](https://git-scm.com/book/en/v2/Git-Tools-Submodules) for details.
+## Install
 
-TODO
-
-- [] a C/C++ extension for memsaving expanding step (to directly compute the membership matrix)  
-- [] Interface with ReCode sparse format (not to begin with dense frames).
+```buildoutcfg
+$ python setup.py install
+```
