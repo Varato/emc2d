@@ -1,6 +1,6 @@
 import time
 import numpy as np
-from typing import Tuple, Union
+from typing import Tuple, Union, List, Optional
 from scipy.sparse import csr_matrix
 
 import logging
@@ -8,6 +8,13 @@ import logging
 from .utils import vectorize_data, model_reshape
 from .transform import ECOperator
 from .calibrate import maximum_likelihood_drifts, centre_by_reference, centre_by_first_frame
+
+_EMC_KERNEL_INSTALLED = True
+try:
+    from .extensions import emc_kernel
+except ImportError:
+    _EMC_KERNEL_INSTALLED = False
+    print("cpp extension is not correctly installed")
 
 
 logger = logging.getLogger('emc2d')
@@ -31,7 +38,7 @@ class EMC(object):
         init_model: str or ndarray
             If it's a string, it should be either 'sum' or 'random'
         """
-        self.frames = vectorize_data(frames)  # (num_frames, n_pix)
+        self.frames = vectorize_data(frames).astype(np.uint32)  # (num_frames, n_pix)
         self.num_frames = frames.shape[0]
         self.frame_size = frame_size
         self.max_drift = max_drift
@@ -41,7 +48,7 @@ class EMC(object):
                            self.frame_size[1] + 2*self.max_drift)
 
         # initialize model and assure its size is correct
-        model = self.initialize_model(init_model)
+        model = self.initialize_model(init_model).astype(np.float64)
         self.curr_model = model_reshape(model, self.model_size)
 
         # the operator for 'expand' and 'compress'
@@ -122,47 +129,52 @@ class EMC(object):
             self.frame_size, self.curr_model, reference, self.drifts_in_use, centre_is_origin)
         return recon_drifts, np.roll(self.curr_model, shift=calibrating_drift, axis=(-2, -1))
 
-    # def expand_memsaving(self) -> np.ndarray:
-    #     """
-    #     Expands current model into patterns, and compute the membership probabilities for each frame.
 
-    #     It differs from `expand` in the following way: rather than store the full set of patterns, it
-    #     computes the membership probabilities on the fly. In this Python implementation, this saves memory
-    #     but is time-inefficient.
+def compute_membership_probability_memsaving(
+        frames_flat,
+        model,
+        frame_shape: Tuple[int, int],
+        max_drift: Union[int, Tuple[int, int]], drifts_in_use: Optional[List[int]] = None, return_raw: bool = False):
+    if not _EMC_KERNEL_INSTALLED:
+        raise RuntimeError("need cpp extension to run this function")
 
-    #     Parameters
-    #     ----------
-        
-    #     Returns
-    #     -------
-    #     membership probabilities as a 2D array in shape (n_drifts, n_frames).
-    #     """
-    #     n_drifts = len(self.drifts_in_use)
-    #     window_size = self.frame_size
-    #     membership_probability = np.empty(shape=(n_drifts, self.n_frames), dtype=np.float)
+    if type(max_drift) is int:
+        max_drift = (max_drift, max_drift)
+    max_drift_x, max_drift_y = max_drift
 
-    #     for j, idx in enumerate(self.drifts_in_use):
-    #         s = self.drifts[idx]
-    #         pattern     = self.curr_model[s[0]:s[0]+window_size[0], s[1]:s[1]+window_size[1]].reshape(-1,)
-    #         log_pattern = np.log(pattern + 1e-17)
-    #         LL = log_pattern @ self.frames.T - np.sum(pattern)  # (n_frames,)
-    #         LL = np.clip(LL - np.max(LL), -600.0, 1.)
-    #         membership_probability[j, :] = np.exp(LL)
+    if drifts_in_use is None:
+        drifts_in_use = list(range((2*max_drift_x + 1) * (2*max_drift_y + 1)))
 
-    #     membership_probability /= membership_probability.sum(0, keepdims=True)
+    h, w = frame_shape
 
-    #     return membership_probability
+    # frames_flat = np.asarray(frames_flat, dtype=np.uint32)
+    # model = np.asarray(model, dtype=np.float64)
+    drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
+
+    ll = emc_kernel.compute_log_likelihood_map(
+        frames_flat=frames_flat,
+        model=model,
+        w=w,
+        max_drift_y=max_drift_y,
+        drifts_in_use=drifts_in_use)
+
+    if return_raw:
+        return ll
+    ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -600.0, 1.)
+    p_jk = np.exp(ll)
+
+    membershipt_probability = p_jk / (p_jk.sum(0) + 1e-13)
+    return membershipt_probability
 
 
-# TODO: cpp extension for memsaving
-def compute_membership_probability(expanded_model, frames, return_raw=False):
+def compute_membership_probability(expanded_model_flat, frames_flat, return_raw=False):
     """
     Computes the membership probability matrix given expanded_model and frames.
 
     Parameters
     ----------
-    expanded_model: array of shape (M, n_pix)
-    frames: array of shape (N, n_pix)
+    expanded_model_flat: array of shape (M, n_pix)
+    frames_flat: array of shape (N, n_pix)
         where M is the number of positions; N is the number of frames; n_pix is the number of pixels of each frame.
         Notice that both expanded_model and frames are flattened.
     return_raw: bool
@@ -175,13 +187,13 @@ def compute_membership_probability(expanded_model, frames, return_raw=False):
     """
 
     #    (M, N)
-    ll = frames.dot(np.log(expanded_model.T + 1e-13)).T - expanded_model.sum(1, keepdims=True)
+    ll = frames_flat.dot(np.log(expanded_model_flat.T + 1e-13)).T - expanded_model_flat.sum(1, keepdims=True)
     if return_raw:
         return ll
     ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -600.0, 1.)
     p_jk = np.exp(ll)
 
-    membershipt_probability = p_jk / p_jk.sum(0)
+    membershipt_probability = p_jk / (p_jk.sum(0) + 1e-13)
     return membershipt_probability
 
 

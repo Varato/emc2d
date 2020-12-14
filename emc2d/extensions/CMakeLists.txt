@@ -1,0 +1,1 @@
+pybind11_add_module(emc_kernel src/emc_kernel.cpp)

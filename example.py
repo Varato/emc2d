@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from emc2d import emc
+from emc2d import core
 
 
 # --- Simulated Data ---

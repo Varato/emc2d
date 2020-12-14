@@ -1,3 +1,3 @@
-from . import emc
+from . import core
 from . import utils
 from . import transform
