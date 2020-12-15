@@ -5,6 +5,7 @@ from pathlib import Path
 
 from emc2d import core
 from emc2d.sim import build_model, generate_frames
+from emc2d.extensions import emc_kernel
 
 np.random.seed(2020)
 
@@ -41,14 +42,17 @@ class EmcTestCase(unittest.TestCase):
         self.assertEqual(self.emc.frame_size, (128, 128), "wrong size of frames")
 
     def test_membership_probability(self):
-        from emc2d.extensions import emc_kernel
-        print(emc_kernel.compute_membership_probability)
-        print(emc_kernel.merge_frames_into_model)
-
-        expanded_model = self.emc.ec_op.expand(self.model, self.frame_size, flatten=True)
-        membership_probability1 = core.compute_membership_probability(expanded_model, self.emc.frames)
+        start = time.time()
+        membership_probability1 = core.compute_membership_probability(emc.frames, model, frame_size, max_drift)
+        dt1 = time.time() - start
         print(membership_probability1.shape)
 
-        membership_probability2 = core.compute_membership_probability_memsaving(
-            self.emc.frames, self.model, self.frame_size, self.max_drift)
+        start = time.time()
+        membership_probability2 = core.compute_membership_probability_memsaving(emc.frames, model, frame_size, max_drift)
+        dt2 = time.time() - start
         print(membership_probability2.shape)
+
+        isclose = np.allclose(membership_probability1, membership_probability2)
+        print(f"result same = {isclose}")
+        print(f"dt1 = {dt1}, dt2 = {dt2}")
+        self.assertTrue(isclose)

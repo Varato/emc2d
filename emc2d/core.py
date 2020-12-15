@@ -257,7 +257,7 @@ def merge_frames_soft(frames_flat,
 
     Parameters
     ----------
-    frames: 2D array in shape (N, h*w)
+    frames_flat: 2D array in shape (N, h*w)
     frame_size: Tuple[int, int]
         the frame shape (h, w).
     model_size: Tuple[int, int]
@@ -277,9 +277,38 @@ def merge_frames_soft(frames_flat,
     ec_op = ECOperator(max_drift)
 
     n_drifts = membership_probability.shape[0]
-    weights_jk = membership_probability / membership_probability.sum(1, keepdims=True)  # (n_drifts, n_frames)
+    merge_weights = membership_probability / membership_probability.sum(1, keepdims=True)  # (n_drifts, n_frames)
 
-    new_w_ji = weights_jk @ frames  # (M, N) @ (N, n_pix) = (M, n_pix)
+    new_w_ji = merge_weights @ frames_flat  # (M, N) @ (N, n_pix) = (M, n_pix)
     new_expanded_model = new_w_ji.reshape(n_drifts, *frame_size)  # (M, h, w)
-
     return ec_op.compress(new_expanded_model, model_size, drifts_in_use)
+
+def merge_frames_soft_memsaving(frames_flat, 
+                                frame_size: Tuple[int, int], 
+                                model_size: Tuple[int, int], 
+                                membership_probability: np.ndarray,
+                                max_drift: Tuple[int, int],
+                                drifts_in_use: Optional[List[int]] = None):
+    if not _EMC_KERNEL_INSTALLED:
+        raise RuntimeError("need cpp extension to run this function")
+
+    if drifts_in_use is None:
+        drifts_in_use = list(range((2*max_drift[0] + 1) * (2*max_drift[1] + 1)))
+
+    drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
+
+    n_drifts = membership_probability.shape[0]
+    merge_weights = membership_probability / membership_probability.sum(1, keepdims=True)  # (n_drifts, n_frames)
+
+    max_drift_x, max_drift_y = max_drift
+    h, w = frame_size
+    H, W = model_size
+
+    model = emc_kernel.merge_frames_soft(
+        frames_flat=frames_flat.astype(np.float32),
+        h=h, w=w, H=H, W=W, 
+        max_drift_y=max_drift_y,
+        merge_weights=merge_weights.astype(np.float32),
+        drifts_in_use=drifts_in_use)
+
+    return model
