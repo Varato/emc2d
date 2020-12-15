@@ -38,7 +38,7 @@ class EMC(object):
         init_model: str or ndarray
             If it's a string, it should be either 'sum' or 'random'
         """
-        self.frames = vectorize_data(frames).astype(np.uint32)  # (num_frames, n_pix)
+        self.frames = vectorize_data(frames).astype(np.float32)  # (num_frames, n_pix)
         self.num_frames = frames.shape[0]
         self.frame_size = frame_size
         self.max_drift = max_drift
@@ -48,7 +48,7 @@ class EMC(object):
                            self.frame_size[1] + 2*self.max_drift[1])
 
         # initialize model and assure its size is correct
-        model = self.initialize_model(init_model).astype(np.float64)
+        model = self.initialize_model(init_model).astype(np.float32)
         self.curr_model = model_reshape(model, self.model_size)
 
         # the operator for 'expand' and 'compress'
@@ -138,7 +138,7 @@ class EMC(object):
 def compute_membership_probability_memsaving(
         frames_flat,
         model,
-        frame_shape: Tuple[int, int],
+        frame_size: Tuple[int, int],
         max_drift: Tuple[int, int], 
         drifts_in_use: Optional[List[int]] = None, 
         return_raw: bool = False):
@@ -149,7 +149,7 @@ def compute_membership_probability_memsaving(
     ----------
     frames_flat: array of shape (N, n_pix)
     model: array of shape (H, W)
-    frame_shape: Tuple[int, int]
+    frame_size: Tuple[int, int]
     max_drift: Tuple[int, int]
     drifts_in_use: Optional[List[int]]
         indices that specify what locations in the drift space will be considered
@@ -167,24 +167,20 @@ def compute_membership_probability_memsaving(
     if not _EMC_KERNEL_INSTALLED:
         raise RuntimeError("need cpp extension to run this function")
 
+    h, w = frame_size
     max_drift_x, max_drift_y = max_drift
 
     if drifts_in_use is None:
         drifts_in_use = list(range((2*max_drift_x + 1) * (2*max_drift_y + 1)))
-
-    h, w = frame_shape
-
-    frames_flat = np.asarray(frames_flat, dtype=np.float64)
-    model = np.asarray(model, dtype=np.float64)
     drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
 
     ll = emc_kernel.compute_log_likelihood_map(
-        frames_flat=frames_flat,
-        model=model,
+        frames_flat=frames_flat.astype(np.float32),
+        model=model.astype(np.float32),
         h=h, w=w,
         max_drift_y=max_drift_y,
-        drifts_in_use=drifts_in_use)
-
+        drifts_in_use=drifts_in_use
+    )
     if return_raw:
         return ll
     ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -600.0, 1.)
@@ -197,7 +193,7 @@ def compute_membership_probability_memsaving(
 def compute_membership_probability(
         frames_flat,
         model,
-        frame_shape: Tuple[int, int],
+        frame_size: Tuple[int, int],
         max_drift: Tuple[int, int], 
         drifts_in_use: Optional[List[int]] = None, 
         return_raw: bool = False):
@@ -207,11 +203,16 @@ def compute_membership_probability(
     Parameters
     ----------
     frames_flat: array of shape (N, n_pix)
+
     model: array of shape (H, W)
-    frame_shape: Tuple[int, int]
+
+    frame_size: Tuple[int, int]
+
     max_drift: Tuple[int, int]
+
     drifts_in_use: Optional[List[int]]
         indices that specify what locations in the drift space will be considered
+
     return_raw: bool
         determines whether to return the reduced log likelihood map directly or not.
         If set False, the log likelihood will be exponentiated and normalized for each frame over all positions.
@@ -222,9 +223,8 @@ def compute_membership_probability(
     -------
     array: the membership probability matrix in shape (M, N)
     """
-
     ec_op = ECOperator(max_drift)
-    expanded_model_flat = ec_op.expand(model, frame_shape, drifts_in_use, flatten=True)
+    expanded_model_flat = ec_op.expand(model, frame_size, drifts_in_use, flatten=True)
 
     #    (M, N)
     ll = frames_flat.dot(np.log(expanded_model_flat.T + 1e-13)).T - expanded_model_flat.sum(1, keepdims=True)

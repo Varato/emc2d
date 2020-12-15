@@ -14,12 +14,13 @@
 
 
 namespace py = pybind11;
+typedef float float_type;
 
-typedef py::array_t<double, py::array::c_style | py::array::forcecast> py_array_double_ctype;
+typedef py::array_t<float_type, py::array::c_style | py::array::forcecast> py_array_float_ctype;
 typedef py::array_t<uint32_t , py::array::c_style | py::array::forcecast> py_array_uint32_ctype;
 
-const double eps = 1e-13;
-const double LjkLowerBound = -600;
+const float_type eps = 1e-13f;
+const float_type LjkLowerBound = -600.0f;
 
 // inline
 // uint32_t getFramesPixel(uint32_t framesFlat[], size_t numPixels, size_t k, size_t i){
@@ -31,28 +32,35 @@ const double LjkLowerBound = -600;
 // }
 
 
-double frameRowLikelihood(double FkRow[], double logWjRow[], double WjRow[], size_t w) {
+float_type frameRowLikelihood(float_type FkRow[], float_type logWjRow[], float_type WjRow[], size_t w) {
 
-    const unsigned UNROLL = 4;
-    double reduced;
-    size_t whole_w = w / (4 * UNROLL);
+    float_type reduced;
+    size_t remainder_w = w % 8;
+    size_t whole_w = w - remainder_w;
 
-    __m256d reduced256 = _mm256_set_pd(0.0F, 0.0F, 0.0F, 0.0F);
-    __m256d mul256, ll;
-    for (size_t i = 0; i < whole_w; i += 4) {
+    __m256 reduced256 = _mm256_setzero_ps();
+    __m256 mul256, ll;
+
+    size_t i = 0;
+    for (; i < whole_w; i += 8) {
         // FkRow[i] * logWjRow[i] - WjRow[i];
-        mul256 = _mm256_mul_pd(_mm256_load_pd(FkRow + i), _mm256_load_pd(logWjRow + i));
-        ll = _mm256_sub_pd(mul256, _mm256_load_pd(WjRow + i));
-        reduced256 = _mm256_add_pd(reduced256, ll);        
+        mul256 = _mm256_mul_ps(_mm256_load_ps(FkRow + i), _mm256_load_ps(logWjRow + i));
+        ll = _mm256_sub_ps(mul256, _mm256_load_ps(WjRow + i));
+        reduced256 = _mm256_add_ps(reduced256, ll);        
     }
+    _mm256_store_ps(&reduced, reduced256);
 
-    _mm256_store_pd(&reduced, reduced256);
+    if (remainder_w > 0) {
+        for (; i < w; ++i) {
+            reduced += FkRow[i] * logWjRow[i] - WjRow[i];
+        }
+    }
     return reduced;
 }
 
 
-void computeLogLikelihoodMap(double framesFlat[],
-                             double model[],
+void computeLogLikelihoodMap(float_type framesFlat[],
+                             float_type model[],
                              size_t H, size_t W,  // model dims
                              size_t h, size_t w,  // frame dims
                              size_t numPixels,
@@ -60,7 +68,7 @@ void computeLogLikelihoodMap(double framesFlat[],
                              uint32_t driftsInUse[],
                              size_t numDriftsInUse,
                              size_t maxDriftY,
-                             double output[]) {
+                             float_type output[]) {
     /* Logic dimensions of arrays:
      *     N = number of frames
      *     M = number of all drifts
@@ -80,21 +88,21 @@ void computeLogLikelihoodMap(double framesFlat[],
     size_t modelNumPixels = W*H;
 
     // pre-compute the slow log
-    std::vector<double> logModel(modelNumPixels);
-    std::transform(model, model + modelNumPixels, logModel.begin(), [](double v){return log(v + eps);});
+    std::vector<float_type> logModel(modelNumPixels);
+    std::transform(model, model + modelNumPixels, logModel.begin(), [](float_type v){return log(v + eps);});
 
     #pragma omp parallel for
     for (int k = 0; k < numFrames; ++k) {
         for (size_t j = 0; j < numDriftsInUse; ++j) {
-            int t = driftsInUse[j];
-            int x = t / (2*maxDriftY + 1);
-            int y = t % (2*maxDriftY + 1);
+            size_t t = driftsInUse[j];
+            size_t x = t / (2*maxDriftY + 1);
+            size_t y = t % (2*maxDriftY + 1);
 
-            double Ljk = 0;  //cumulator
+            float_type Ljk = 0;  //cumulator
             for (int row = 0; row < h; ++row) {
-                double *modelRowPtr = model + (x + row) * W + y;
-                double *logModelRowPtr = logModel.data() + (x + row) * W + y;
-                double *frameRowPtr = framesFlat + k * numPixels + row * w;
+                float_type *modelRowPtr = model + (x + row) * W + y;
+                float_type *logModelRowPtr = logModel.data() + (x + row) * W + y;
+                float_type *frameRowPtr = framesFlat + k * numPixels + row * w;
                 Ljk += frameRowLikelihood(frameRowPtr, logModelRowPtr, modelRowPtr, w);
             }
             output[j * numFrames + k] = Ljk;
@@ -106,17 +114,17 @@ void computeLogLikelihoodMap(double framesFlat[],
 void mergeFramesIntoModel(uint32_t framesFlat[],
                           size_t h, size_t w,
                           size_t H, size_t W,
-                          double membershipProbability[],
+                          float_type membershipProbability[],
                           size_t numFrames,
                           uint32_t driftsInUse[],
                           size_t maxDriftY,
                           size_t numDriftsInUse,
-                          double output[]) {
+                          float_type output[]) {
 
     size_t x, y, t;
     size_t Mi, Mj;
-    double Wji, Pjk;
-    double norm;
+    float_type Wji, Pjk;
+    float_type norm;
 
     size_t numPixels = w*h;
 
@@ -145,12 +153,12 @@ void mergeFramesIntoModel(uint32_t framesFlat[],
 
     for (size_t i = 0; i < W*H; ++i) {
         if (visitingTimes[i] > 0)
-            output[i] /= (double)visitingTimes[i];
+            output[i] /= (float_type)visitingTimes[i];
     }
 }
 
-py::array computeLogLikelihoodMapWrapper(py_array_double_ctype framesFlat,
-                                         py_array_double_ctype model,
+py::array computeLogLikelihoodMapWrapper(py_array_float_ctype framesFlat,
+                                         py_array_float_ctype model,
                                          unsigned w, unsigned h,
                                          unsigned maxDriftY,
                                          py_array_uint32_ctype driftsInUse) {
@@ -164,12 +172,12 @@ py::array computeLogLikelihoodMapWrapper(py_array_double_ctype framesFlat,
     size_t numDriftsInUse = driftsInUseInfo.shape[0];
     size_t H = modelInfo.shape[0];
     size_t W = modelInfo.shape[1];
-    py::array output = make2dArray<double>(numDriftsInUse, numFrames);
+    py::array output = make2dArray<float_type>(numDriftsInUse, numFrames);
 
-    double* framesFlatPtr = (double *)(framesFlatInfo.ptr);
-    double* modelPtr = (double *)(model.request().ptr);
+    float_type* framesFlatPtr = (float_type *)(framesFlatInfo.ptr);
+    float_type* modelPtr = (float_type *)(model.request().ptr);
     uint32_t* driftInUserPtr = (uint32_t *)(driftsInUseInfo.ptr);
-    double* outPtr = (double *)(output.request().ptr);
+    float_type* outPtr = (float_type *)(output.request().ptr);
 
     computeLogLikelihoodMap(framesFlatPtr,
                             modelPtr,
@@ -189,10 +197,10 @@ py::array mergeFramesIntoModelWrapper(py_array_uint32_ctype framesFlat,
                                       size_t h, size_t w,
                                       size_t H, size_t W,
                                       size_t maxDriftY,
-                                      py_array_double_ctype membershipProbability,
+                                      py_array_float_ctype membershipProbability,
                                       py_array_uint32_ctype driftsInUse) {
 
-    py::array output = make2dArray<double>(H, W);
+    py::array output = make2dArray<float_type>(H, W);
     py::buffer_info framesFlatInfo = framesFlat.request();
     py::buffer_info memProbInfo = membershipProbability.request();
     py::buffer_info driftsInUseInfo = driftsInUse.request();
@@ -202,9 +210,9 @@ py::array mergeFramesIntoModelWrapper(py_array_uint32_ctype framesFlat,
     size_t numDriftsInUse = memProbInfo.shape[0];
 
     uint32_t* framesFlatPtr = (uint32_t *)(framesFlatInfo.ptr);
-    double* memProbPtr = (double *) (memProbInfo.ptr);
+    float_type* memProbPtr = (float_type *) (memProbInfo.ptr);
     uint32_t* driftInUserPtr = (uint32_t *)(driftsInUseInfo.ptr);
-    double* outPtr = (double *)(output.request().ptr);
+    float_type* outPtr = (float_type *)(output.request().ptr);
 
     mergeFramesIntoModel(framesFlatPtr,
                          h, w,

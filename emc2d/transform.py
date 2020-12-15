@@ -53,6 +53,7 @@ class ECOperator:
         return model / np.where(weights > 0., weights, 1.)
 
 
+# legacy code
 class Drift(object):
     """
     This class defines the drift transformation for EMC.
