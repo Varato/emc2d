@@ -93,6 +93,24 @@ class EMC(object):
             max_drift=self.max_drift,
             drifts_in_use=self.drifts_in_use)
 
+    def one_step_memsaving(self):
+        self.membership_probability = compute_membership_probability_memsaving(
+            frames_flat=self.frames, 
+            model=self.curr_model, 
+            frame_size=self.frame_size, 
+            max_drift=self.max_drift, 
+            drifts_in_use=self.drifts_in_use,
+            return_raw=False)
+
+        self.curr_model = merge_frames_soft_memsaving(
+            frames_flat=self.frames, 
+            frame_size=self.frame_size, 
+            model_size=self.model_size, 
+            membership_probability=self.membership_probability,
+            max_drift=self.max_drift,
+            drifts_in_use=self.drifts_in_use)
+
+
     def initialize_model(self, init_model: Union[str, np.ndarray]):
         """
         regularise the initial model, including pad the initial model according to img_size and max_drift.
@@ -277,7 +295,7 @@ def merge_frames_soft(frames_flat,
     ec_op = ECOperator(max_drift)
 
     n_drifts = membership_probability.shape[0]
-    merge_weights = membership_probability / membership_probability.sum(1, keepdims=True)  # (n_drifts, n_frames)
+    merge_weights = membership_probability / (membership_probability.sum(1, keepdims=True) + 1e-13)  # (n_drifts, n_frames)
 
     new_w_ji = merge_weights @ frames_flat  # (M, N) @ (N, n_pix) = (M, n_pix)
     new_expanded_model = new_w_ji.reshape(n_drifts, *frame_size)  # (M, h, w)
@@ -298,7 +316,7 @@ def merge_frames_soft_memsaving(frames_flat,
     drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
 
     n_drifts = membership_probability.shape[0]
-    merge_weights = membership_probability / membership_probability.sum(1, keepdims=True)  # (n_drifts, n_frames)
+    merge_weights = membership_probability / (membership_probability.sum(1, keepdims=True) + 1e-13) # (n_drifts, n_frames)
 
     max_drift_x, max_drift_y = max_drift
     h, w = frame_size
