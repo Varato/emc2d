@@ -85,7 +85,7 @@ class EMC(object):
             drifts_in_use=self.drifts_in_use,
             return_raw=False)
 
-        self.curr_model = merge_frames_into_model(
+        self.curr_model = merge_frames_soft(
             frames_flat=self.frames, 
             frame_size=self.frame_size, 
             model_size=self.model_size, 
@@ -246,12 +246,12 @@ def compute_membership_probability(
     return membershipt_probability
 
 
-def merge_frames_into_model(frames_flat, 
-                            frame_size: Tuple[int, int], 
-                            model_size: Tuple[int, int], 
-                            membership_probability: np.ndarray,
-                            max_drift: Tuple[int, int],
-                            drifts_in_use: Optional[List[int]] = None):
+def merge_frames_soft(frames_flat, 
+                      frame_size: Tuple[int, int], 
+                      model_size: Tuple[int, int], 
+                      membership_probability: np.ndarray,
+                      max_drift: Tuple[int, int],
+                      drifts_in_use: Optional[List[int]] = None):
     """
     Update patterns from frames according to the given membership_prabability.
 
