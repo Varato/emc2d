@@ -11,10 +11,7 @@ class ECOperator:
         self.all_drifts = make_drift_vectors(max_drift, origin='corner')
         self.num_all_drifts = self.all_drifts.shape[0]
 
-    def expand(self, model, window_size: Tuple[int, int], drifts_in_use: List[int] = None, flatten: bool = False):
-        if drifts_in_use is None:
-            drifts_in_use = list(range(self.num_all_drifts))
-
+    def expand(self, model, window_size: Tuple[int, int], drifts_in_use: List[int], flatten: bool = False):
         n_drifts = len(drifts_in_use)
         expanded_model = np.empty(shape=(n_drifts, *window_size), dtype=np.float)
         for j, i in enumerate(drifts_in_use):
@@ -26,7 +23,7 @@ class ECOperator:
         else:
             return expanded_model
 
-    def compress(self, expanded_model, model_size: Tuple[int, int], drifts_in_use: List[int] = None):
+    def compress(self, expanded_model, model_size: Tuple[int, int], drifts_in_use: List[int]):
         """
         Compresses an expaned_model (patterns) into a model according to the corresponding drifts.
 
@@ -40,8 +37,6 @@ class ECOperator:
         -------
         an assembled model as 2D array
         """
-        if drifts_in_use is None:
-            drifts_in_use = list(range(self.num_all_drifts))
 
         window_size = expanded_model.shape[-2:]
         model = np.zeros(shape=model_size, dtype=np.float)

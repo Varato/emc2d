@@ -78,14 +78,20 @@ class EMC(object):
 
     def one_step(self):
         self.membership_probability = compute_membership_probability(
-            self.frames, 
-            self.curr_model, 
-            self.frame_size, 
-            self.max_drift, 
-            self.drifts_in_use,
+            frames_flat=self.frames, 
+            model=self.curr_model, 
+            frame_size=self.frame_size, 
+            max_drift=self.max_drift, 
+            drifts_in_use=self.drifts_in_use,
             return_raw=False)
-        new_expanded_model = merge_frames_into_model(self.frames, self.frame_size, self.membership_probability)
-        self.curr_model = self.ec_op.compress(new_expanded_model, self.model_size, self.drifts_in_use)
+
+        self.curr_model = merge_frames_into_model(
+            frames_flat=self.frames, 
+            frame_size=self.frame_size, 
+            model_size=self.model_size, 
+            membership_probability=self.membership_probability,
+            max_drift=self.max_drift,
+            drifts_in_use=self.drifts_in_use)
 
     def initialize_model(self, init_model: Union[str, np.ndarray]):
         """
@@ -223,6 +229,9 @@ def compute_membership_probability(
     -------
     array: the membership probability matrix in shape (M, N)
     """
+    if drifts_in_use is None:
+        drifts_in_use = list(range((2*max_drift[0] + 1) * (2*max_drift[1] + 1)))
+
     ec_op = ECOperator(max_drift)
     expanded_model_flat = ec_op.expand(model, frame_size, drifts_in_use, flatten=True)
 
@@ -237,27 +246,40 @@ def compute_membership_probability(
     return membershipt_probability
 
 
-def merge_frames_into_model(frames, frame_size: Tuple[int, int], membership_probability: np.ndarray):
+def merge_frames_into_model(frames_flat, 
+                            frame_size: Tuple[int, int], 
+                            model_size: Tuple[int, int], 
+                            membership_probability: np.ndarray,
+                            max_drift: Tuple[int, int],
+                            drifts_in_use: Optional[List[int]] = None):
     """
     Update patterns from frames according to the given membership_prabability.
 
     Parameters
     ----------
-    frames: 2D array in shape (N, n_pix)
+    frames: 2D array in shape (N, h*w)
     frame_size: Tuple[int, int]
-        the original height and width of the frames before flattened.
+        the frame shape (h, w).
+    model_size: Tuple[int, int]
+        the model shape (H, W).
     membership_probability: 2D array in shape (M, N)
         the membership probabilities for each frame against each drift.
+    max_drift: Tuple[int, int]
+    drifts_in_use: Optional[List[int]]
 
     Returns
     -------
     the updated patterns in shape (M, *frame_size)
     """
+    if drifts_in_use is None:
+        drifts_in_use = list(range((2*max_drift[0] + 1) * (2*max_drift[1] + 1)))
+
+    ec_op = ECOperator(max_drift)
 
     n_drifts = membership_probability.shape[0]
     weights_jk = membership_probability / membership_probability.sum(1, keepdims=True)  # (n_drifts, n_frames)
 
     new_w_ji = weights_jk @ frames  # (M, N) @ (N, n_pix) = (M, n_pix)
-    new_expanded_model = new_w_ji.reshape(n_drifts, *frame_size)
+    new_expanded_model = new_w_ji.reshape(n_drifts, *frame_size)  # (M, h, w)
 
-    return new_expanded_model
+    return ec_op.compress(new_expanded_model, model_size, drifts_in_use)
