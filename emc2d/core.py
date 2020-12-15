@@ -77,8 +77,13 @@ class EMC(object):
         return history
 
     def one_step(self):
-        expanded_model = self.ec_op.expand(self.curr_model, self.frame_size, self.drifts_in_use, flatten=True)
-        self.membership_probability = compute_membership_probability(expanded_model, self.frames)
+        self.membership_probability = compute_membership_probability(
+            self.frames, 
+            self.curr_model, 
+            self.frame_size, 
+            self.max_drift, 
+            self.drifts_in_use,
+            return_raw=False)
         new_expanded_model = merge_frames_into_model(self.frames, self.frame_size, self.membership_probability)
         self.curr_model = self.ec_op.compress(new_expanded_model, self.model_size, self.drifts_in_use)
 
@@ -134,7 +139,31 @@ def compute_membership_probability_memsaving(
         frames_flat,
         model,
         frame_shape: Tuple[int, int],
-        max_drift: Tuple[int, int], drifts_in_use: Optional[List[int]] = None, return_raw: bool = False):
+        max_drift: Tuple[int, int], 
+        drifts_in_use: Optional[List[int]] = None, 
+        return_raw: bool = False):
+    """
+    Computes the membership probability matrix given expanded_model and frames.
+
+    Parameters
+    ----------
+    frames_flat: array of shape (N, n_pix)
+    model: array of shape (H, W)
+    frame_shape: Tuple[int, int]
+    max_drift: Tuple[int, int]
+    drifts_in_use: Optional[List[int]]
+        indices that specify what locations in the drift space will be considered
+    return_raw: bool
+        determines whether to return the reduced log likelihood map directly or not.
+        If set False, the log likelihood will be exponentiated and normalized for each frame over all positions.
+
+        where M is the number of positions; N is the number of frames; n_pix is the number of pixels of each frame.
+        Notice that both expanded_model and frames are flattened.    model: array of shape (H, W)
+        Returns
+    -------
+    array: the membership probability matrix in shape (M, N)
+    """
+
     if not _EMC_KERNEL_INSTALLED:
         raise RuntimeError("need cpp extension to run this function")
 
@@ -145,8 +174,8 @@ def compute_membership_probability_memsaving(
 
     h, w = frame_shape
 
-    # frames_flat = np.asarray(frames_flat, dtype=np.uint32)
-    # model = np.asarray(model, dtype=np.float64)
+    frames_flat = np.asarray(frames_flat, dtype=np.float64)
+    model = np.asarray(model, dtype=np.float64)
     drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
 
     ll = emc_kernel.compute_log_likelihood_map(
@@ -165,24 +194,37 @@ def compute_membership_probability_memsaving(
     return membershipt_probability
 
 
-def compute_membership_probability(expanded_model_flat, frames_flat, return_raw=False):
+def compute_membership_probability(
+        frames_flat,
+        model,
+        frame_shape: Tuple[int, int],
+        max_drift: Tuple[int, int], 
+        drifts_in_use: Optional[List[int]] = None, 
+        return_raw: bool = False):
     """
     Computes the membership probability matrix given expanded_model and frames.
 
     Parameters
     ----------
-    expanded_model_flat: array of shape (M, n_pix)
     frames_flat: array of shape (N, n_pix)
-        where M is the number of positions; N is the number of frames; n_pix is the number of pixels of each frame.
-        Notice that both expanded_model and frames are flattened.
+    model: array of shape (H, W)
+    frame_shape: Tuple[int, int]
+    max_drift: Tuple[int, int]
+    drifts_in_use: Optional[List[int]]
+        indices that specify what locations in the drift space will be considered
     return_raw: bool
         determines whether to return the reduced log likelihood map directly or not.
         If set False, the log likelihood will be exponentiated and normalized for each frame over all positions.
 
-    Returns
+        where M is the number of positions; N is the number of frames; n_pix is the number of pixels of each frame.
+        Notice that both expanded_model and frames are flattened.    model: array of shape (H, W)
+        Returns
     -------
     array: the membership probability matrix in shape (M, N)
     """
+
+    ec_op = ECOperator(max_drift)
+    expanded_model_flat = ec_op.expand(model, frame_shape, drifts_in_use, flatten=True)
 
     #    (M, N)
     ll = frames_flat.dot(np.log(expanded_model_flat.T + 1e-13)).T - expanded_model_flat.sum(1, keepdims=True)

@@ -36,14 +36,12 @@ emc = core.EMC(
     init_model=model)
 
 start = time.time()
-expanded_model = emc.ec_op.expand(model, frame_size, flatten=True)
-membership_probability1 = core.compute_membership_probability(expanded_model, emc.frames)
+membership_probability1 = core.compute_membership_probability(emc.frames, model, frame_size, max_drift)
 dt1 = time.time() - start
 print(membership_probability1.shape)
 
 start = time.time()
-membership_probability2 = core.compute_membership_probability_memsaving(
-    emc.frames, model, frame_size, max_drift)
+membership_probability2 = core.compute_membership_probability_memsaving(emc.frames, model, frame_size, max_drift)
 dt2 = time.time() - start
 print(membership_probability2.shape)
 
