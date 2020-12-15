@@ -28,13 +28,13 @@ class EMC(object):
     def __init__(self,
                  frames: Union[np.ndarray, csr_matrix],
                  frame_size: Tuple[int, int],
-                 max_drift: int,
+                 max_drift: Tuple[int, int],
                  init_model: Union[str, np.ndarray] = 'sum'):
         """
         Parameters
         ----------
         frames: array in shape (num_frames, h, w) or (num_frames, h*w)
-        max_drift: int
+        max_drift: Tuple[int, int]
         init_model: str or ndarray
             If it's a string, it should be either 'sum' or 'random'
         """
@@ -44,8 +44,8 @@ class EMC(object):
         self.max_drift = max_drift
 
         # model_size - frame_size = 2*max_drift
-        self.model_size = (self.frame_size[0] + 2*self.max_drift,
-                           self.frame_size[1] + 2*self.max_drift)
+        self.model_size = (self.frame_size[0] + 2*self.max_drift[0],
+                           self.frame_size[1] + 2*self.max_drift[1])
 
         # initialize model and assure its size is correct
         model = self.initialize_model(init_model).astype(np.float64)
@@ -94,8 +94,8 @@ class EMC(object):
         -------
         the regularized initial model
         """
-        expected_model_size = (self.frame_size[0] + 2*self.max_drift,
-                               self.frame_size[1] + 2*self.max_drift)
+        expected_model_size = (self.frame_size[0] + 2*self.max_drift[0],
+                               self.frame_size[1] + 2*self.max_drift[1])
 
         if (type(init_model) is str) and init_model == 'random':
             return np.random.rand(*expected_model_size)
@@ -134,12 +134,10 @@ def compute_membership_probability_memsaving(
         frames_flat,
         model,
         frame_shape: Tuple[int, int],
-        max_drift: Union[int, Tuple[int, int]], drifts_in_use: Optional[List[int]] = None, return_raw: bool = False):
+        max_drift: Tuple[int, int], drifts_in_use: Optional[List[int]] = None, return_raw: bool = False):
     if not _EMC_KERNEL_INSTALLED:
         raise RuntimeError("need cpp extension to run this function")
 
-    if type(max_drift) is int:
-        max_drift = (max_drift, max_drift)
     max_drift_x, max_drift_y = max_drift
 
     if drifts_in_use is None:
@@ -154,7 +152,7 @@ def compute_membership_probability_memsaving(
     ll = emc_kernel.compute_log_likelihood_map(
         frames_flat=frames_flat,
         model=model,
-        w=w,
+        h=h, w=w,
         max_drift_y=max_drift_y,
         drifts_in_use=drifts_in_use)
 

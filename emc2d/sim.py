@@ -2,6 +2,7 @@
 This module defines functions for drift-correction simulations.
 i.e. these functions are usefull only we have the true model
 """
+from typing import Tuple
 import numpy as np
 from skimage import transform as skt
 import logging
@@ -13,12 +14,12 @@ from .core import EMC
 logger = logging.getLogger("emlab.processing.emc_motioncorr.simtools")
 
 
-def random_walk_trajectory(max_drift=10, num_steps=200, start=(0, 0), continuous=False, rand_seed=None, **kwargs):
+def random_walk_trajectory(max_drift: Tuple[int, int], num_steps=200, start=(0, 0), continuous=False, rand_seed=None, **kwargs):
     """
     generate translational vectors for constrained random walk (RW).
     Parameters
     ----------
-    max_drift: int
+    max_drift: Tuple[int, int]
         the max value of each component of each vector
     num_steps: int
         number of steps of the RW
@@ -40,7 +41,7 @@ def random_walk_trajectory(max_drift=10, num_steps=200, start=(0, 0), continuous
         rw[0] = r.astype(np.int)
         for i in range(1, num_steps):
             dr = np.random.randint(low=-1, high=2, size=2)
-            r = np.where(np.abs(r+dr) > max_drift, r-dr, r+dr)
+            r = np.where(np.abs(r+dr) > np.array(max_drift), r-dr, r+dr)
             rw[i] = r
         return rw
     else:
@@ -50,20 +51,20 @@ def random_walk_trajectory(max_drift=10, num_steps=200, start=(0, 0), continuous
             raise ValueError("standard deviation 'sigma' must be given for continuous random walk")
         for i in range(1, num_steps):
             dr = kwargs["sigma"]*np.random.randn(2)
-            while np.any(np.abs(dr) > max_drift):
+            while np.any(np.abs(dr) > np.array(max_drift)):
                 dr = kwargs["sigma"]*np.random.randn(2)
-            r = np.where(np.abs(r+dr) > max_drift, r-dr, r+dr)
+            r = np.where(np.abs(r+dr) > np.array(max_drift), r-dr, r+dr)
             rw[i] = r
         return rw
 
 
-def generate_frames(intensity, window_size, max_drift: int, num_frames: int, mean_count: float, motion_sigma: float):
-    model_size = tuple(w + 2*max_drift for w in window_size)
+def generate_frames(intensity, window_size, max_drift: Tuple[int, int], num_frames: int, mean_count: float, motion_sigma: float):
+    model_size = tuple(w + 2*R for w, R in zip(window_size, max_drift))
     model = build_model(intensity, model_size, mean_count)
     # origin centered
     traj = random_walk_trajectory(max_drift=max_drift, num_steps=num_frames, continuous=True, sigma=motion_sigma)
     traj = np.round(traj).astype(int)
-    translation_series = utils.get_translation_series(model, window_size=window_size, translations=traj+max_drift)
+    translation_series = utils.get_translation_series(model, window_size=window_size, translations=traj+np.array(max_drift))
     return np.random.poisson(translation_series), traj
 
 

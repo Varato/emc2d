@@ -3,10 +3,14 @@
 #include <tuple>
 #include <limits>
 #include <vector>
+#include <algorithm>    // std::transform
 #include <math.h>
 #include <stdio.h>
+#include <omp.h>
+
 
 #include "utils.h"
+
 
 namespace py = pybind11;
 
@@ -17,32 +21,42 @@ const double eps = 1e-13;
 const double LjkLowerBound = -600;
 
 inline
-uint32_t getFramesPixel(uint32_t frames_flat[], size_t numPixels, size_t k, size_t i){
+uint32_t getFramesPixel(uint32_t framesFlat[], size_t numPixels, size_t k, size_t i){
     /*
      * The reason for this function is that, in future, we want the frames_flat to be in some sparse format.
      * Adding this abstraction helps with changing the code.
      * */
-    return frames_flat[k * numPixels + i];
+    return framesFlat[k * numPixels + i];
+}
+
+
+double frameRowLikelihood(uint32_t FkRow[], double logWjRow[], double WjRow[], size_t w) {
+
+    double reduced = 0;
+    for (size_t i = 0; i < w; ++i) {
+        reduced += FkRow[i] * logWjRow[i] - WjRow[i];
+    }
+    return reduced;
 }
 
 
 void computeLogLikelihoodMap(uint32_t framesFlat[],
-                                  double model[],
-                                  size_t W, // model width
-                                  size_t w, // frame width
-                                  size_t numPixels,
-                                  size_t numFrames,
-                                  uint32_t driftsInUse[],
-                                  size_t numDriftsInUse,
-                                  size_t maxDriftY,
-                                  double output[]) {
+                             double model[],
+                             size_t H, size_t W,  // model dims
+                             size_t h, size_t w,  // frame dims
+                             size_t numPixels,
+                             size_t numFrames,
+                             uint32_t driftsInUse[],
+                             size_t numDriftsInUse,
+                             size_t maxDriftY,
+                             double output[]) {
     /* Logic dimensions of arrays:
      *     N = number of frames
      *     M = number of all drifts
      *     m = number of effective drifts
      *     npix = w * h
      *
-     *     frames_flat: (N, npix)
+     *     framesFlat: (N, npix)
      *     model: (H, W)
      *     driftsInUse: (m, )
      *
@@ -52,34 +66,41 @@ void computeLogLikelihoodMap(uint32_t framesFlat[],
      * Assume the origin is at the corner, i.e. (x, y) = (0, 0) is the first drift.
      */
 
-    size_t x, y;   // drift
-    size_t Mi, Mj; // duo indexing for original model pixels
-    size_t t;      // solo index for drift space
-    size_t oidx;   // solo index for output Ljk
-    double Wji, Ljk;
+    size_t x, y;       // drift
+    size_t t;          // solo index for drift space
+    size_t modelNumPixels = W*H;
+    std::vector<double> logModel(modelNumPixels);
 
-    for (size_t k = 0; k < numFrames; ++k) {
+    double Ljk;
+    double *modelRowPtr, *logModelRowPtr;
+    uint32_t *frameRowPtr;
+
+    // pre-compute the slow log
+    std::transform(model, model + modelNumPixels, logModel.begin(), [](double v){return log(v + eps);});
+
+    #pragma omp parallel for
+    for (int k = 0; k < numFrames; ++k) {
         for (size_t j = 0; j < numDriftsInUse; ++j) {
-            oidx = j * numFrames + k;
             t = driftsInUse[j];
             x = t / (2*maxDriftY + 1);
             y = t % (2*maxDriftY + 1);
 
-            Ljk = 0;
-            for (size_t i = 0; i < numPixels; ++i) {
-                Mi = (i / w) + x;
-                Mj = (i % w) + y;
-                Wji = model[Mi * W + Mj];
-                Ljk += getFramesPixel(framesFlat, numPixels, k, i) * log(Wji + eps) - Wji;
-                output[oidx] = Ljk;
+            Ljk = 0;  //cumulator
+            for (int row = 0; row < h; ++row) {
+                modelRowPtr = model + (x + row) * W + y;
+                logModelRowPtr = logModel.data() + (x + row) * W + y;
+                frameRowPtr = framesFlat + k * numPixels + row * w;
+                Ljk += frameRowLikelihood(frameRowPtr, logModelRowPtr, modelRowPtr, w);
             }
+            output[j * numFrames + k] = Ljk;
         }
     }
 }
 
+
 void mergeFramesIntoModel(uint32_t framesFlat[],
-                          size_t w, size_t h,
-                          size_t W, size_t H,
+                          size_t h, size_t w,
+                          size_t H, size_t W,
                           double membershipProbability[],
                           size_t numFrames,
                           uint32_t driftsInUse[],
@@ -125,7 +146,7 @@ void mergeFramesIntoModel(uint32_t framesFlat[],
 
 py::array computeLogLikelihoodMapWrapper(py_array_uint32_ctype framesFlat,
                                          py_array_double_ctype model,
-                                         unsigned w,
+                                         unsigned w, unsigned h,
                                          unsigned maxDriftY,
                                          py_array_uint32_ctype driftsInUse) {
 
@@ -136,6 +157,7 @@ py::array computeLogLikelihoodMapWrapper(py_array_uint32_ctype framesFlat,
     size_t numFrames = framesFlatInfo.shape[0];
     size_t numPixels = framesFlatInfo.shape[1];
     size_t numDriftsInUse = driftsInUseInfo.shape[0];
+    size_t H = modelInfo.shape[0];
     size_t W = modelInfo.shape[1];
     py::array output = make2dArray<double>(numDriftsInUse, numFrames);
 
@@ -146,8 +168,8 @@ py::array computeLogLikelihoodMapWrapper(py_array_uint32_ctype framesFlat,
 
     computeLogLikelihoodMap(framesFlatPtr,
                             modelPtr,
-                            W,
-                            w,
+                            H, W,
+                            h, w,
                             numPixels,
                             numFrames,
                             driftInUserPtr,
@@ -180,8 +202,8 @@ py::array mergeFramesIntoModelWrapper(py_array_uint32_ctype framesFlat,
     double* outPtr = (double *)(output.request().ptr);
 
     mergeFramesIntoModel(framesFlatPtr,
-                         w, h,
-                         W, H,
+                         h, w,
+                         H, W,
                          memProbPtr,
                          numFrames,
                          driftInUserPtr,
@@ -197,7 +219,7 @@ PYBIND11_MODULE(emc_kernel, m) {
           &computeLogLikelihoodMapWrapper,
           py::arg("frames_flat"),
           py::arg("model"),
-          py::arg("w"),
+          py::arg("h"), py::arg("w"),
           py::arg("max_drift_y"),
           py::arg("drifts_in_use"));
 

@@ -6,7 +6,7 @@ from .utils import make_drift_vectors
 
 
 class ECOperator:
-    def __init__(self, max_drift):
+    def __init__(self, max_drift: Tuple[int, int]):
         self.max_drift = max_drift
         self.all_drifts = make_drift_vectors(max_drift, origin='corner')
         self.num_all_drifts = self.all_drifts.shape[0]
