@@ -76,6 +76,21 @@ class EMC(object):
             history['convergence'].append(convergence)
         return history
 
+    def run_memsaving(self, iterations: int, verbose=True):
+        history = {'model_mean': [], 'convergence': []}
+        for i in range(iterations):
+            last_model = self.curr_model
+            start = time.time()
+            self.one_step_memsaving()
+            end = time.time()
+            power = self.curr_model.mean()
+            convergence = np.mean((last_model - self.curr_model)**2)
+            if verbose:
+                logger.info(f"iter {i+1} / {iterations}: model mean = {power:.3f}, time used = {end-start:.3f} s")
+            history['model_mean'].append(power)
+            history['convergence'].append(convergence)
+        return history
+
     def one_step(self):
         self.membership_probability = compute_membership_probability(
             frames_flat=self.frames, 
@@ -85,13 +100,13 @@ class EMC(object):
             drifts_in_use=self.drifts_in_use,
             return_raw=False)
 
-        # self.curr_model = merge_frames_soft(
-        #     frames_flat=self.frames, 
-        #     frame_size=self.frame_size, 
-        #     model_size=self.model_size, 
-        #     membership_probability=self.membership_probability,
-        #     max_drift=self.max_drift,
-        #     drifts_in_use=self.drifts_in_use)
+        self.curr_model = merge_frames_soft(
+            frames_flat=self.frames, 
+            frame_size=self.frame_size, 
+            model_size=self.model_size, 
+            membership_probability=self.membership_probability,
+            max_drift=self.max_drift,
+            drifts_in_use=self.drifts_in_use)
 
     def one_step_memsaving(self):
         self.membership_probability = compute_membership_probability_memsaving(
@@ -102,13 +117,13 @@ class EMC(object):
             drifts_in_use=self.drifts_in_use,
             return_raw=False)
 
-        # self.curr_model = merge_frames_soft_memsaving(
-        #     frames_flat=self.frames, 
-        #     frame_size=self.frame_size, 
-        #     model_size=self.model_size, 
-        #     membership_probability=self.membership_probability,
-        #     max_drift=self.max_drift,
-        #     drifts_in_use=self.drifts_in_use)
+        self.curr_model = merge_frames_soft_memsaving(
+            frames_flat=self.frames, 
+            frame_size=self.frame_size, 
+            model_size=self.model_size, 
+            membership_probability=self.membership_probability,
+            max_drift=self.max_drift,
+            drifts_in_use=self.drifts_in_use)
 
 
     def initialize_model(self, init_model: Union[str, np.ndarray]):
