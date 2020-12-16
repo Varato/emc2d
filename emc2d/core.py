@@ -42,6 +42,7 @@ class EMC(object):
         self.num_frames = frames.shape[0]
         self.frame_size = frame_size
         self.max_drift = max_drift
+        self.frames_mean = self.frames.mean()
 
         # model_size - frame_size = 2*max_drift
         self.model_size = (self.frame_size[0] + 2*self.max_drift[0],
@@ -49,6 +50,7 @@ class EMC(object):
 
         # initialize model and assure its size is correct
         model = self.initialize_model(init_model).astype(np.float32)
+        model = self.frames_mean * model/model.mean()
         self.curr_model = model_reshape(model, self.model_size)
 
         # the operator for 'expand' and 'compress'
@@ -154,7 +156,7 @@ class EMC(object):
             raise ValueError("unknown initial model type. initial model can be 'random', 'sum', or a numpy array.")
 
         assert model is not None
-        return model_reshape(model, expected_model_size)
+        return model
 
     def maximum_likelihood_drifts(self):
         if self.membership_probability is None:
@@ -310,7 +312,7 @@ def merge_frames_soft(frames_flat,
     ec_op = ECOperator(max_drift)
 
     n_drifts = membership_probability.shape[0]
-    merge_weights = membership_probability / (membership_probability.sum(1, keepdims=True) + 1e-13)  # (n_drifts, n_frames)
+    merge_weights = membership_probability / membership_probability.sum(1, keepdims=True)  # (n_drifts, n_frames)
 
     new_w_ji = merge_weights @ frames_flat  # (M, N) @ (N, n_pix) = (M, n_pix)
     new_expanded_model = new_w_ji.reshape(n_drifts, *frame_size)  # (M, h, w)
@@ -331,7 +333,7 @@ def merge_frames_soft_memsaving(frames_flat,
     drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
 
     n_drifts = membership_probability.shape[0]
-    merge_weights = membership_probability / (membership_probability.sum(1, keepdims=True) + 1e-13) # (n_drifts, n_frames)
+    merge_weights = membership_probability / membership_probability.sum(1, keepdims=True) # (n_drifts, n_frames)
 
     max_drift_x, max_drift_y = max_drift
     h, w = frame_size
