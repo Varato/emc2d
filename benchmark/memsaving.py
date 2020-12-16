@@ -70,9 +70,9 @@ for r in max_drifts:
 
 plt.plot(max_drifts, t, 'bv-', label="normal")
 plt.plot(max_drifts, t_memsaving, 'ro-', label="memsaving")
-plt.ylabel("one step EMC time used")
+plt.ylabel("time used (s)")
 plt.xlabel("max_drift")
 plt.legend()
-plt.title("memsaving mode time consuming")
-plt.savefig("benchmark.png", dpi=120)
+plt.title("Prob matrix only")
+plt.savefig(Path(__file__).resolve().parent/"benchmarkProbMatrix.png", dpi=120)
 plt.show()

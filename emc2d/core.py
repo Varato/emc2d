@@ -85,13 +85,13 @@ class EMC(object):
             drifts_in_use=self.drifts_in_use,
             return_raw=False)
 
-        self.curr_model = merge_frames_soft(
-            frames_flat=self.frames, 
-            frame_size=self.frame_size, 
-            model_size=self.model_size, 
-            membership_probability=self.membership_probability,
-            max_drift=self.max_drift,
-            drifts_in_use=self.drifts_in_use)
+        # self.curr_model = merge_frames_soft(
+        #     frames_flat=self.frames, 
+        #     frame_size=self.frame_size, 
+        #     model_size=self.model_size, 
+        #     membership_probability=self.membership_probability,
+        #     max_drift=self.max_drift,
+        #     drifts_in_use=self.drifts_in_use)
 
     def one_step_memsaving(self):
         self.membership_probability = compute_membership_probability_memsaving(
@@ -102,13 +102,13 @@ class EMC(object):
             drifts_in_use=self.drifts_in_use,
             return_raw=False)
 
-        self.curr_model = merge_frames_soft_memsaving(
-            frames_flat=self.frames, 
-            frame_size=self.frame_size, 
-            model_size=self.model_size, 
-            membership_probability=self.membership_probability,
-            max_drift=self.max_drift,
-            drifts_in_use=self.drifts_in_use)
+        # self.curr_model = merge_frames_soft_memsaving(
+        #     frames_flat=self.frames, 
+        #     frame_size=self.frame_size, 
+        #     model_size=self.model_size, 
+        #     membership_probability=self.membership_probability,
+        #     max_drift=self.max_drift,
+        #     drifts_in_use=self.drifts_in_use)
 
 
     def initialize_model(self, init_model: Union[str, np.ndarray]):

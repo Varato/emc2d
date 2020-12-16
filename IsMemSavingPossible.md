@@ -1,36 +1,40 @@
-#include <pybind11/pybind11.h>
-#include <pybind11/numpy.h>
-#include <tuple>
-#include <limits>
-#include <vector>
-#include <algorithm>    // std::transform
-#include <math.h>
-#include <stdio.h>
-#include <omp.h>
-#include <immintrin.h>  // avx intrinsics
+# Is memory saving possible in EMC
 
+## Notations
 
-#include "utils.h"
+- N: number of frames
+- M: number of translations (or orientations) under consideration
+- n: number of pixels in each frame
+- h, w: height and width of each frame
+- H, W: height and width of the model
+- R: drift range
 
+in motion correction, we have
+H = h + 2R,
+W = w + 2R.
 
-namespace py = pybind11;
-typedef float float_type;
+## Problem
 
-typedef py::array_t<float_type, py::array::c_style | py::array::forcecast> py_array_float_ctype;
-typedef py::array_t<uint32_t , py::array::c_style | py::array::forcecast> py_array_uint32_ctype;
+Although usually we do not care about memory but only time complexity, saving memory may be useful for motion-correction EMC because M grows quadratically with the given drift rage. As Deepan has observed, when the drift range is larger than 125 pixels, the computation becomes difficult.
 
-const float_type eps = 1e-13f;
+During EMC iterations, the model is expanded into M patches, and then the M by N probability matrix is computed.
+But essentially, we only need the probability matrix for subsequent computations. Therefore, as long as we can pick up pixels correctly in the computations of the probability matrix, we do not have to save the expanded M patches in the memory. The same idea holds when merging frames into the model. Specifically, if we know where each frame pixel will be compared with (to compute likelihood) or merged into (for the compress step) a pixel in the model, we can directly do that.
 
-// inline
-// uint32_t getFramesPixel(uint32_t framesFlat[], size_t numPixels, size_t k, size_t i){
-//     /*
-//      * The reason for this function is that, in future, we want the frames_flat to be in some sparse format.
-//      * Adding this abstraction helps with changing the code.
-//      * */
-//     return framesFlat[k * numPixels + i];
-// }
+The problem, however, might be a low-level efficiency trade-off. By having the expanded model as a (M by n) matrix in memory, the probability matrix computation becomes a neat matrix multiplication ((M, n) @ (n, N) -> (M, N)), which can be efficiently handled by optimized linear algebra code (like numpy). On the contrary, if we pick up pixels "randomly" to virtually have the (M by n) matrix, cache-missing (and other possible issues) can happen, resulting in low hardware efficiency.
 
+So far, by using AVX intrinsics (a CPU SIMD instruction set which vectorize computation of 256 bits at a time) and OpenMP (very cheating to numpy), I can make the memery-saving computation of the probability matrix comprably fast as my old numpy implementation. But for the merging step, my best trial is still a multiple (2 to 5 times) slower than the numpy implementation.
+The follwoing two figures show a prob-matrix-only comparison and a full-one-step-EMC comparison, respectively.
 
+![bm_prob](/benchmark/benchmarkProbMatrix.png)
+![bm_one_step](/benchmark/benchmarkOneStepEMC.png)
+
+## Snippets
+
+The full code is at 
+
+### Code for computing the probability matrix
+
+```cpp
 // code from https://stackoverflow.com/questions/13219146/how-to-sum-m256-horizontally
 // to reduce-sum a __m256 vector of 8 floats
 // x = ( x7, x6, x5, x4, x3, x2, x1, x0 )
@@ -84,42 +88,6 @@ float_type frameRowLikelihood(float_type FkRow[], float_type logMjRow[], float_t
     return reduced;
 }
 
-
-inline
-void mergeOneRow0(float_type MjRow[], float_type FkRow[], float_type wjk, size_t w) {
-
-    for (size_t i = 0; i < w; ++i){
-        MjRow[i] += wjk * FkRow[i];
-    }
-}
-
-
-inline
-void mergeOneRow(float_type MjRow[], float_type FkRow[], float_type wjk, size_t w) {
-    // only marginal speed gain using avx here ...
-
-    size_t remainder_w = w % 8;
-    size_t whole_w = w - remainder_w;
-    
-    __m256 MjRow256, FkRow256;
-    __m256 wjk256 = _mm256_set1_ps(wjk);
-
-    size_t i = 0;
-    // MjRow[i] += wjk * FkRow[i];
-    for (; i < whole_w; i+=8) {
-        MjRow256 = _mm256_load_ps(MjRow + i);
-        FkRow256 = _mm256_load_ps(FkRow + i);
-        MjRow256 = _mm256_add_ps(MjRow256, _mm256_mul_ps(wjk256, FkRow256));
-        _mm256_store_ps(MjRow + i, MjRow256);
-    }
-    if (remainder_w > 0) {
-        for(; i < w; ++i) {
-            MjRow[i] += wjk * FkRow[i];
-        }
-    }
-}
-
-
 void computeLogLikelihoodMap(float_type framesFlat[],
                              float_type model[],
                              size_t H, size_t W,  // model dims
@@ -167,6 +135,35 @@ void computeLogLikelihoodMap(float_type framesFlat[],
                 Ljk += frameRowLikelihood(frameRowPtr, logModelRowPtr, modelRowPtr, w);
             }
             output[j * numFrames + k] = Ljk;
+        }
+    }
+}
+```
+
+### Code for merging frames in to one (H, W)-sized model
+
+```cpp
+inline
+void mergeOneRow(float_type MjRow[], float_type FkRow[], float_type wjk, size_t w) {
+    // only marginal speed gain using avx here ...
+
+    size_t remainder_w = w % 8;
+    size_t whole_w = w - remainder_w;
+    
+    __m256 MjRow256, FkRow256;
+    __m256 wjk256 = _mm256_set1_ps(wjk);
+
+    size_t i = 0;
+    // MjRow[i] += wjk * FkRow[i];
+    for (; i < whole_w; i+=8) {
+        MjRow256 = _mm256_load_ps(MjRow + i);
+        FkRow256 = _mm256_load_ps(FkRow + i);
+        MjRow256 = _mm256_add_ps(MjRow256, _mm256_mul_ps(wjk256, FkRow256));
+        _mm256_store_ps(MjRow + i, MjRow256);
+    }
+    if (remainder_w > 0) {
+        for(; i < w; ++i) {
+            MjRow[i] += wjk * FkRow[i];
         }
     }
 }
@@ -228,95 +225,4 @@ void mergeFramesSoft(float_type framesFlat[],
             output[i] /= visitingTimes[i];
     }
 }
-
-
-/* ----- pybind11 wrappers ----- */
-py::array computeLogLikelihoodMapWrapper(py_array_float_ctype framesFlat,
-                                         py_array_float_ctype model,
-                                         unsigned w, unsigned h,
-                                         unsigned maxDriftY,
-                                         py_array_uint32_ctype driftsInUse) {
-
-    py::buffer_info framesFlatInfo = framesFlat.request();
-    py::buffer_info modelInfo = model.request();
-    py::buffer_info driftsInUseInfo = driftsInUse.request();
-
-    size_t numFrames = framesFlatInfo.shape[0];
-    size_t numPixels = framesFlatInfo.shape[1];
-    size_t numDriftsInUse = driftsInUseInfo.shape[0];
-    size_t H = modelInfo.shape[0];
-    size_t W = modelInfo.shape[1];
-    py::array output = make2dArray<float_type>(numDriftsInUse, numFrames);
-
-    float_type* framesFlatPtr = (float_type *)(framesFlatInfo.ptr);
-    float_type* modelPtr = (float_type *)(model.request().ptr);
-    uint32_t* driftInUserPtr = (uint32_t *)(driftsInUseInfo.ptr);
-    float_type* outPtr = (float_type *)(output.request().ptr);
-
-    computeLogLikelihoodMap(framesFlatPtr,
-                            modelPtr,
-                            H, W,
-                            h, w,
-                            numPixels,
-                            numFrames,
-                            driftInUserPtr,
-                            numDriftsInUse,
-                            maxDriftY,
-                            outPtr);
-    return output;
-}
-
-
-py::array mergeFramesSoftWrapper(py_array_float_ctype framesFlat,
-                                 size_t h, size_t w,
-                                 size_t H, size_t W,
-                                 size_t maxDriftY,
-                                 py_array_float_ctype mergeWeights,
-                                 py_array_uint32_ctype driftsInUse) {
-
-    py::array output = make2dArray<float_type>(H, W);
-    py::buffer_info framesFlatInfo = framesFlat.request();
-    py::buffer_info mergeWeightsInfo = mergeWeights.request();
-    py::buffer_info driftsInUseInfo = driftsInUse.request();
-
-    size_t numFrames = framesFlatInfo.shape[0];
-    size_t numDriftsInUse = mergeWeightsInfo.shape[0];
-
-    float_type* framesFlatPtr = (float_type *)(framesFlatInfo.ptr);
-    float_type* mergeWeightsPtr = (float_type *) (mergeWeightsInfo.ptr);
-    uint32_t* driftInUserPtr = (uint32_t *)(driftsInUseInfo.ptr);
-    float_type* outPtr = (float_type *)(output.request().ptr);
-
-    mergeFramesSoft(framesFlatPtr,
-                    h, w,
-                    H, W,
-                    mergeWeightsPtr,
-                    numFrames,
-                    driftInUserPtr,
-                    maxDriftY,
-                    numDriftsInUse,
-                    outPtr);
-    return output;
-}
-
-
-/* ----- pybind11 module def -----*/
-PYBIND11_MODULE(emc_kernel, m) {
-    m.def("compute_log_likelihood_map",
-          &computeLogLikelihoodMapWrapper,
-          py::arg("frames_flat"),
-          py::arg("model"),
-          py::arg("h"), py::arg("w"),
-          py::arg("max_drift_y"),
-          py::arg("drifts_in_use"));
-
-    m.def("merge_frames_soft",
-          &mergeFramesSoftWrapper,
-          py::arg("frames_flat"),
-          py::arg("h"), py::arg("w"),
-          py::arg("H"), py::arg("W"),
-          py::arg("max_drift_y"),
-          py::arg("merge_weights"),
-          py::arg("drifts_in_use")
-    );
-}
+```
