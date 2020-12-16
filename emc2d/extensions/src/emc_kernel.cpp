@@ -57,8 +57,19 @@ float sum8(__m256 x) {
 }
 
 
+/*
+ * Notes for AVX
+ * _mm256_load_ps load 32-Byte-ALIGNED data, meaning the data must be located at 32n, n=0,1,2... address in memory
+ * _mm256_store_ps store a __m256 to 32-Byte-ALIGNED memory, too.
+ * 
+ * Because here the arrays are from numpy single float, which obviously only guarantees 4-Byte alignment. This is why using
+ * _mm256_load_ps and _mm256_store_ps results in segmentation fault.
+ * 
+ * _mm256_loadu_ps and _mm256_storeu_ps do not require the 32-Byte alignment. So use them.
+ */
+
 inline
-float_type frameRowLikelihood(float_type FkRow[], float_type logMjRow[], float_type MjRow[], size_t w) {
+float_type frameRowLikelihood(float_type *FkRow, float_type logMjRow[], float_type MjRow[], size_t w) {
 
     float_type reduced;
     size_t remainder_w = w % 8;
@@ -66,12 +77,11 @@ float_type frameRowLikelihood(float_type FkRow[], float_type logMjRow[], float_t
 
     __m256 reduced256 = _mm256_setzero_ps();
     __m256 mul256, ll;
-
     size_t i = 0;
     for (; i < whole_w; i += 8) {
         // FkRow[i] * logMjRow[i] - MjRow[i];
-        mul256 = _mm256_mul_ps(_mm256_load_ps(FkRow + i), _mm256_load_ps(logMjRow + i));
-        ll = _mm256_sub_ps(mul256, _mm256_load_ps(MjRow + i));
+        mul256 = _mm256_mul_ps(_mm256_loadu_ps(FkRow + i), _mm256_loadu_ps(logMjRow + i));
+        ll = _mm256_sub_ps(mul256, _mm256_loadu_ps(MjRow + i));
         reduced256 = _mm256_add_ps(reduced256, ll);        
     }
     reduced = sum8(reduced256);
@@ -107,10 +117,10 @@ void mergeOneRow(float_type MjRow[], float_type FkRow[], float_type wjk, size_t 
     size_t i = 0;
     // MjRow[i] += wjk * FkRow[i];
     for (; i < whole_w; i+=8) {
-        MjRow256 = _mm256_load_ps(MjRow + i);
-        FkRow256 = _mm256_load_ps(FkRow + i);
+        MjRow256 = _mm256_loadu_ps(MjRow + i);
+        FkRow256 = _mm256_loadu_ps(FkRow + i);
         MjRow256 = _mm256_add_ps(MjRow256, _mm256_mul_ps(wjk256, FkRow256));
-        _mm256_store_ps(MjRow + i, MjRow256);
+        _mm256_storeu_ps(MjRow + i, MjRow256);
     }
     if (remainder_w > 0) {
         for(; i < w; ++i) {

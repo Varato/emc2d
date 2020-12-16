@@ -73,8 +73,8 @@ print(f"merge frame result same = {isclose2}")
 print(f"dt3 = {dt3}, dt4 = {dt4}")
 
 
-_, (ax1, ax2, ax3) = plt.subplots(ncols=3)
-ax1.imshow(merged_model1)
-ax2.imshow(merged_model2)
-ax3.imshow(diff)
-plt.show()
+# _, (ax1, ax2, ax3) = plt.subplots(ncols=3)
+# ax1.imshow(merged_model1)
+# ax2.imshow(merged_model2)
+# ax3.imshow(diff)
+# plt.show()
