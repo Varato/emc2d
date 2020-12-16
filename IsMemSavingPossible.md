@@ -25,8 +25,8 @@ The problem, however, might be a low-level efficiency trade-off. By having the e
 So far, by using AVX intrinsics (a CPU SIMD instruction set which vectorize computation of 256 bits at a time) and OpenMP (very cheating to numpy), I can make the memory-saving computation of the probability matrix comprably fast as my old numpy implementation. But for the merging step, my best trial is still a multiple (2 to 5 times) slower than the numpy implementation.
 The following two figures show a prob-matrix-only comparison and a full-one-step-EMC comparison, respectively.
 
-![bm_prob](/benchmark/benchmarkProbMatrix.png)
-![bm_one_step](/benchmark/benchmarkOneStepEMC.png)
+![bm_prob](./benchmark/benchmarkProbMatrix.png)
+![bm_one_step](./benchmark/benchmarkOneStepEMC.png)
 
 ## Snippets
 
