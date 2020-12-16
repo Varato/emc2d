@@ -196,7 +196,7 @@ def compute_membership_probability_memsaving(
 
     if drifts_in_use is None:
         drifts_in_use = list(range((2*max_drift_x + 1) * (2*max_drift_y + 1)))
-    drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
+    drifts_in_use = np.ascontiguousarray(drifts_in_use, dtype=np.uint32)
 
     ll = emc_kernel.compute_log_likelihood_map(
         frames_flat=frames_flat.astype(np.float32),
