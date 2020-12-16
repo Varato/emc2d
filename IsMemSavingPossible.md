@@ -9,7 +9,7 @@
 - H, W: height and width of the model
 - R: drift range
 
-in motion correction, we have
+In motion correction, we have
 H = h + 2R,
 W = w + 2R.
 
@@ -30,7 +30,7 @@ The follwoing two figures show a prob-matrix-only comparison and a full-one-step
 
 ## Snippets
 
-The full code is at 
+The full code is at https://github.com/Varato/emc2d/blob/master/emc2d/extensions/src/emc_kernel.cpp
 
 ### Code for computing the probability matrix
 
