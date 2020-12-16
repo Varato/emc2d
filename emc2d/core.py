@@ -1,4 +1,5 @@
 import time
+import warnings
 import numpy as np
 from typing import Tuple, Union, List, Optional
 from scipy.sparse import csr_matrix
@@ -12,10 +13,9 @@ from .calibrate import maximum_likelihood_drifts, centre_by_reference, centre_by
 _EMC_KERNEL_INSTALLED = True
 try:
     from .extensions import emc_kernel
-except ImportError:
+except ImportError as e:
     _EMC_KERNEL_INSTALLED = False
-    print("cpp extension is not correctly installed")
-
+    warnings.warn(f"cpp extension is not correctly installed: {str(e)}")
 
 logger = logging.getLogger('emc2d')
 logger.setLevel(logging.DEBUG)

@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.12)
 
 # To build cpp extensions for emc2d
 project(emc2d C CXX)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # set(CMAKE_CXX_FLAGS_RELEASE "-O3")
