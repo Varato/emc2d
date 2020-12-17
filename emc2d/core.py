@@ -90,6 +90,9 @@ class EMC(object):
             self.history['convergence'].append(convergence)
 
     def one_step(self, lpfs: float = None):
+        if lpfs is not None:
+            self.curr_model = gaussian_filter(self.curr_model, sigma=lpfs)
+
         self.membership_probability = compute_membership_probability(
             frames_flat=self.frames, 
             model=self.curr_model, 
@@ -106,10 +109,10 @@ class EMC(object):
             drift_radius=self.drift_radius,
             drifts_in_use=self.drifts_in_use)
 
+    def one_step_memsaving(self, lpfs: float = None):
         if lpfs is not None:
             self.curr_model = gaussian_filter(self.curr_model, sigma=lpfs)
 
-    def one_step_memsaving(self, lpfs: float = None):
         self.membership_probability = compute_membership_probability_memsaving(
             frames_flat=self.frames, 
             model=self.curr_model, 
@@ -125,9 +128,6 @@ class EMC(object):
             membership_probability=self.membership_probability,
             drift_radius=self.drift_radius,
             drifts_in_use=self.drifts_in_use)
-
-        if lpfs is not None:
-            self.curr_model = gaussian_filter(self.curr_model, sigma=lpfs)
 
     def initialize_model(self, init_model: Union[str, np.ndarray], pixel_mean: float):
         """
