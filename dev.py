@@ -33,7 +33,7 @@ frames, traj = generate_frames(
 emc = core.EMC(
     frames=frames,
     frame_size=frame_size,
-    max_drift=max_drift,
+    drift_radius=max_drift,
     init_model=model)
 
 

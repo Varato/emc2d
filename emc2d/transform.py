@@ -6,9 +6,9 @@ from .utils import make_drift_vectors
 
 
 class ECOperator:
-    def __init__(self, max_drift: Tuple[int, int]):
-        self.max_drift = max_drift
-        self.all_drifts = make_drift_vectors(max_drift, origin='corner')
+    def __init__(self, drift_radius: Tuple[int, int]):
+        self.drift_radius = drift_radius
+        self.all_drifts = make_drift_vectors(drift_radius, origin='corner')
         self.num_all_drifts = self.all_drifts.shape[0]
 
     def expand(self, model, window_size: Tuple[int, int], drifts_in_use: List[int], flatten: bool = False):

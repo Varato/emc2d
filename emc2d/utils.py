@@ -87,11 +87,11 @@ def centre_crop(img, size: Tuple[int, int]):
     return ret
 
 
-def make_drift_vectors(max_drift: Tuple[int, int], origin: str = 'center') -> np.ndarray:
-    vectors = np.array([(x, y) for x in range(2*max_drift[0] + 1) for y in range(2*max_drift[1] + 1)], dtype=np.int)
+def make_drift_vectors(drift_radius: Tuple[int, int], origin: str = 'center') -> np.ndarray:
+    vectors = np.array([(x, y) for x in range(2*drift_radius[0] + 1) for y in range(2*drift_radius[1] + 1)], dtype=np.int)
 
     if origin == 'center':
-        return np.array(max_drift, dtype=np.int) - vectors
+        return np.array(drift_radius, dtype=np.int) - vectors
     elif origin == 'corner':
         return vectors
     else:
@@ -144,7 +144,7 @@ def vectorize_data(frames: Union[np.ndarray, csr_matrix]):
             return vec_data
 
 
-def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int]):
+def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int], return_mask=True):
     """
     Pad or crop the model so that its shape becomes expected_shape.
 
@@ -152,11 +152,14 @@ def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int]):
     ----------
     model: 2D array
     expected_shape: Tuple[int ,int]
+    return_mask: bool
 
     Returns
     -------
-    the model with expected shape.
-
+    model: array
+        the model with expected shape.
+    mask: array
+        a mask that manifests how the model reshaped.
     """
     init_shape = model.shape
 
@@ -168,10 +171,13 @@ def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int]):
         pad_width = (
             (px // 2, px // 2) if px % 2 == 0 else (px // 2 + 1, px // 2),
             (py // 2, py // 2) if py % 2 == 0 else (py // 2 + 1, py // 2))
-        return np.pad(model, pad_width, mode='constant', constant_values=0)
+        mask = np.pad(np.ones(init_shape), pad_width, mode='constant', constant_values=0)
+        return np.pad(model, pad_width, mode='constant', constant_values=0), mask
     # if both dimensions of the given model is larger than or equal to the target size, crop it.
     else:
         margin = [init_shape[i] - expected_shape[i] for i in range(2)]
         start_x = margin[0] // 2 if margin[0] % 2 == 0 else margin[0] // 2 + 1
         start_y = margin[1] // 2 if margin[1] % 2 == 0 else margin[1] // 2 + 1
-        return model[start_x:start_x + expected_shape[0], start_y:start_y + expected_shape[1]]
+        mask = np.ones(init_shape)
+        mask[start_x:start_x + expected_shape[0], start_y:start_y + expected_shape[1]] = 0
+        return model[start_x:start_x + expected_shape[0], start_y:start_y + expected_shape[1]], mask

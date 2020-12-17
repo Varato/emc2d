@@ -29,7 +29,8 @@ def show_membership_probability(membership_probability,
                                 frame_index: int,
                                 drift_radius: Tuple[int, int],
                                 drifts_in_use: Optional[List[int]] = None,
-                                ax=None):
+                                ax=None,
+                                vmax=None):
     fig = None
     if ax is None:
         fig, ax = plt.subplots()
@@ -39,9 +40,8 @@ def show_membership_probability(membership_probability,
     ax.set_xlabel('y')
     pmat = utils.fold_likelihood_map(membership_probability, drift_radius, drifts_in_use)
     frame_mat = pmat[frame_index]
-    print("??")
-    ax.imshow(frame_mat, vmin=0, vmax=0.01)
-    return fig, pmat
+    ax.imshow(frame_mat, vmin=0, vmax=frame_mat.std() if vmax is None else vmax)
+    return fig
 
 
 def show_emc_state(emc: core.EMC):

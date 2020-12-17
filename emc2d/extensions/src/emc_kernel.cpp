@@ -138,7 +138,7 @@ void computeLogLikelihoodMap(float_type framesFlat[],
                              size_t numFrames,
                              uint32_t driftsInUse[],
                              size_t numDriftsInUse,
-                             size_t maxDriftY,
+                             size_t driftRadiusY,
                              float_type output[]) {
     /* Logic dimensions of arrays:
      *     N = number of frames
@@ -152,7 +152,7 @@ void computeLogLikelihoodMap(float_type framesFlat[],
      *
      *     output: (m, N)
      *
-     * maxDriftX and maxDriftY define the drift space of dimensions (2*maxDriftX + 1, 2*maxDriftY + 1)
+     * maxDriftX and driftRadiusY define the drift space of dimensions (2*maxDriftX + 1, 2*driftRadiusY + 1)
      * Assume the origin is at the corner, i.e. (x, y) = (0, 0) is the first drift.
      */
 
@@ -166,8 +166,8 @@ void computeLogLikelihoodMap(float_type framesFlat[],
     for (int k = 0; k < numFrames; ++k) {
         for (size_t j = 0; j < numDriftsInUse; ++j) {
             size_t t = driftsInUse[j];
-            size_t x = t / (2*maxDriftY + 1);
-            size_t y = t % (2*maxDriftY + 1);
+            size_t x = t / (2*driftRadiusY + 1);
+            size_t y = t % (2*driftRadiusY + 1);
 
             float_type Ljk = 0;  //cumulator
             for (int row = 0; row < h; ++row) {
@@ -188,7 +188,7 @@ void mergeFramesSoft(float_type framesFlat[],
                      float_type mergeWeights[],
                      size_t numFrames,
                      uint32_t driftsInUse[],
-                     size_t maxDriftY,
+                     size_t driftRadiusY,
                      size_t numDriftsInUse,
                      float_type output[]) {
 
@@ -205,8 +205,8 @@ void mergeFramesSoft(float_type framesFlat[],
     // deal with k=0 for visitingTimes.
     for (size_t j = 0; j < numDriftsInUse; ++j) {
         t = driftsInUse[j];
-        x = t / (2*maxDriftY + 1);
-        y = t % (2*maxDriftY + 1);
+        x = t / (2*driftRadiusY + 1);
+        y = t % (2*driftRadiusY + 1);
         wj0 = mergeWeights[j*numFrames];
         for (int row = 0; row < h; ++row) {
             modelRowPtr = output + (x + row) * W + y;
@@ -222,8 +222,8 @@ void mergeFramesSoft(float_type framesFlat[],
     for (int k = 1; k < numFrames; ++k) {
         for (size_t j = 0; j < numDriftsInUse; ++j) {
             t = driftsInUse[j];
-            x = t / (2*maxDriftY + 1);
-            y = t % (2*maxDriftY + 1);
+            x = t / (2*driftRadiusY + 1);
+            y = t % (2*driftRadiusY + 1);
             wjk = mergeWeights[j*numFrames + k];
             for (int row = 0; row < h; ++row) {
                 modelRowPtr = output + (x + row) * W + y;
@@ -244,7 +244,7 @@ void mergeFramesSoft(float_type framesFlat[],
 py::array computeLogLikelihoodMapWrapper(py_array_float_ctype framesFlat,
                                          py_array_float_ctype model,
                                          unsigned w, unsigned h,
-                                         unsigned maxDriftY,
+                                         unsigned driftRadiusY,
                                          py_array_uint32_ctype driftsInUse) {
 
     py::buffer_info framesFlatInfo = framesFlat.request();
@@ -271,7 +271,7 @@ py::array computeLogLikelihoodMapWrapper(py_array_float_ctype framesFlat,
                             numFrames,
                             driftInUserPtr,
                             numDriftsInUse,
-                            maxDriftY,
+                            driftRadiusY,
                             outPtr);
     return output;
 }
@@ -280,7 +280,7 @@ py::array computeLogLikelihoodMapWrapper(py_array_float_ctype framesFlat,
 py::array mergeFramesSoftWrapper(py_array_float_ctype framesFlat,
                                  size_t h, size_t w,
                                  size_t H, size_t W,
-                                 size_t maxDriftY,
+                                 size_t driftRadiusY,
                                  py_array_float_ctype mergeWeights,
                                  py_array_uint32_ctype driftsInUse) {
 
@@ -303,7 +303,7 @@ py::array mergeFramesSoftWrapper(py_array_float_ctype framesFlat,
                     mergeWeightsPtr,
                     numFrames,
                     driftInUserPtr,
-                    maxDriftY,
+                    driftRadiusY,
                     numDriftsInUse,
                     outPtr);
     return output;
@@ -317,7 +317,7 @@ PYBIND11_MODULE(emc_kernel, m) {
           py::arg("frames_flat"),
           py::arg("model"),
           py::arg("h"), py::arg("w"),
-          py::arg("max_drift_y"),
+          py::arg("drift_radius_y"),
           py::arg("drifts_in_use"));
 
     m.def("merge_frames_soft",
@@ -325,7 +325,7 @@ PYBIND11_MODULE(emc_kernel, m) {
           py::arg("frames_flat"),
           py::arg("h"), py::arg("w"),
           py::arg("H"), py::arg("W"),
-          py::arg("max_drift_y"),
+          py::arg("drift_radius_y"),
           py::arg("merge_weights"),
           py::arg("drifts_in_use")
     );

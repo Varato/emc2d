@@ -11,15 +11,16 @@ from . import utils
 from .core import EMC
 
 
-logger = logging.getLogger("emlab.processing.emc_motioncorr.simtools")
+logger = logging.getLogger("emc2d.sim")
 
 
-def random_walk_trajectory(max_drift: Tuple[int, int], num_steps=200, start=(0, 0), continuous=False, rand_seed=None, **kwargs):
+def random_walk_trajectory(
+        drift_radius: Tuple[int, int], num_steps=200, start=(0, 0), continuous=False, rand_seed=None, **kwargs):
     """
     generate translational vectors for constrained random walk (RW).
     Parameters
     ----------
-    max_drift: Tuple[int, int]
+    drift_radius: Tuple[int, int]
         the max value of each component of each vector
     num_steps: int
         number of steps of the RW
@@ -41,7 +42,7 @@ def random_walk_trajectory(max_drift: Tuple[int, int], num_steps=200, start=(0, 
         rw[0] = r.astype(np.int)
         for i in range(1, num_steps):
             dr = np.random.randint(low=-1, high=2, size=2)
-            r = np.where(np.abs(r+dr) > np.array(max_drift), r-dr, r+dr)
+            r = np.where(np.abs(r+dr) > np.array(drift_radius), r-dr, r+dr)
             rw[i] = r
         return rw
     else:
@@ -51,20 +52,22 @@ def random_walk_trajectory(max_drift: Tuple[int, int], num_steps=200, start=(0, 
             raise ValueError("standard deviation 'sigma' must be given for continuous random walk")
         for i in range(1, num_steps):
             dr = kwargs["sigma"]*np.random.randn(2)
-            while np.any(np.abs(dr) > np.array(max_drift)):
+            while np.any(np.abs(dr) > np.array(drift_radius)):
                 dr = kwargs["sigma"]*np.random.randn(2)
-            r = np.where(np.abs(r+dr) > np.array(max_drift), r-dr, r+dr)
+            r = np.where(np.abs(r+dr) > np.array(drift_radius), r-dr, r+dr)
             rw[i] = r
         return rw
 
 
-def generate_frames(intensity, window_size, max_drift: Tuple[int, int], num_frames: int, mean_count: float, motion_sigma: float):
-    model_size = tuple(w + 2*R for w, R in zip(window_size, max_drift))
+def generate_frames(
+        intensity, window_size, drift_radius: Tuple[int, int], num_frames: int, mean_count: float, motion_sigma: float):
+    model_size = tuple(w + 2*R for w, R in zip(window_size, drift_radius))
     model = build_model(intensity, model_size, mean_count)
     # origin centered
-    traj = random_walk_trajectory(max_drift=max_drift, num_steps=num_frames, continuous=True, sigma=motion_sigma)
+    traj = random_walk_trajectory(drift_radius=drift_radius, num_steps=num_frames, continuous=True, sigma=motion_sigma)
     traj = np.round(traj).astype(int)
-    translation_series = utils.get_translation_series(model, window_size=window_size, translations=traj+np.array(max_drift))
+    translation_series = utils.get_translation_series(
+        model, window_size=window_size, translations=traj+np.array(drift_radius))
     return np.random.poisson(translation_series), traj
 
 
@@ -148,14 +151,14 @@ def mse_error(recon_traj, true_traj):
 
 
 # For single run test
-def run_emc_and_compute_traj_mse(frames, max_drift, true_model, true_traj, iterations: int, verbose=False):
+def run_emc_and_compute_traj_mse(frames, drift_radius, true_model, true_traj, iterations: int):
     emc = EMC(
         frames,
         frame_size=frames.shape[-2:],
-        max_drift=max_drift,
+        drift_radius=drift_radius,
         init_model=true_model)
 
-    emc.run(iterations=iterations, verbose=verbose)
+    emc.run(iterations=iterations)
     emc.curr_model = true_model
     recon_traj, recon_model = emc.centre_by_reference(true_model, centre_is_origin=True)
     return mse_error(recon_traj, true_traj), recon_traj, recon_model

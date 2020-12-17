@@ -34,7 +34,7 @@ class EmcTestCase(unittest.TestCase):
         self.emc = core.EMC(
             frames=self.frames,
             frame_size=self.frame_size,
-            max_drift=self.max_drift,
+            drift_radius=self.max_drift,
             init_model=self.model)
 
     def test_model_frame_dims(self):
