@@ -130,9 +130,9 @@ def get_spectrum(image, center_cover_size: int = 20, max_normalized: bool = True
     ps = np.abs(ft)**2
     ch_start = (h-c)//2
     cw_start = (w-c)//2
+    ps[ch_start:ch_start+c, cw_start:cw_start+c] = 0
     if max_normalized:
         ps /= ps.max()
-    ps[ch_start:ch_start+c, cw_start:cw_start+c] = 0
     return ps
 
 
