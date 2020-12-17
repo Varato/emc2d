@@ -4,6 +4,8 @@ import numpy as np
 from typing import Tuple, Union, List, Optional
 from scipy.sparse import csr_matrix
 
+from tqdm import tqdm
+
 import logging
 
 from .utils import vectorize_data, model_reshape
@@ -38,7 +40,7 @@ class EMC(object):
         init_model: str or ndarray
             If it's a string, it should be either 'sum' or 'random'
         """
-        self.frames = vectorize_data(frames).astype(np.float32)  # (num_frames, n_pix)
+        self.frames = vectorize_data(frames).astype(np.float64)  # (num_frames, n_pix)
         self.num_frames = frames.shape[0]
         self.frame_size = frame_size
         self.max_drift = max_drift
@@ -49,7 +51,7 @@ class EMC(object):
                            self.frame_size[1] + 2*self.max_drift[1])
 
         # initialize model and assure its size is correct
-        model = self.initialize_model(init_model).astype(np.float32)
+        model = self.initialize_model(init_model).astype(np.float64)
         model = self.frames_mean * model/model.mean()
         self.curr_model = model_reshape(model, self.model_size)
 
@@ -63,24 +65,24 @@ class EMC(object):
         # to hold the membership probability matrix
         self.membership_probability = None
 
+        self.history = {'model_mean': [], 'convergence': []}
+
     def run(self, iterations: int, verbose=True):
-        history = {'model_mean': [], 'convergence': []}
-        for i in range(iterations):
+        for i in tqdm(range(iterations)):
             last_model = self.curr_model
             start = time.time()
             self.one_step()
             end = time.time()
             power = self.curr_model.mean()
             convergence = np.mean((last_model - self.curr_model)**2)
-            if verbose:
-                logger.info(f"iter {i+1} / {iterations}: model mean = {power:.3f}, time used = {end-start:.3f} s")
-            history['model_mean'].append(power)
-            history['convergence'].append(convergence)
-        return history
+            # if verbose:
+            #     logger.info(f"iter {i+1} / {iterations}: model mean = {power:.3f}, time used = {end-start:.3f} s")
+            self.history['model_mean'].append(power)
+            self.history['convergence'].append(convergence)
+        return self.history
 
     def run_memsaving(self, iterations: int, verbose=True):
-        history = {'model_mean': [], 'convergence': []}
-        for i in range(iterations):
+        for i in tqdm(range(iterations)):
             last_model = self.curr_model
             start = time.time()
             self.one_step_memsaving()
@@ -89,9 +91,8 @@ class EMC(object):
             convergence = np.mean((last_model - self.curr_model)**2)
             if verbose:
                 logger.info(f"iter {i+1} / {iterations}: model mean = {power:.3f}, time used = {end-start:.3f} s")
-            history['model_mean'].append(power)
-            history['convergence'].append(convergence)
-        return history
+            self.history['model_mean'].append(power)
+            self.history['convergence'].append(convergence)
 
     def one_step(self):
         self.membership_probability = compute_membership_probability(
@@ -274,7 +275,7 @@ def compute_membership_probability(
     ll = frames_flat.dot(np.log(expanded_model_flat.T + 1e-13)).T - expanded_model_flat.sum(1, keepdims=True)
     if return_raw:
         return ll
-    ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -600.0, 1.)
+    ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -2000.0, 1.)
     p_jk = np.exp(ll)
 
     membershipt_probability = p_jk / (p_jk.sum(0) + 1e-13)
@@ -317,6 +318,7 @@ def merge_frames_soft(frames_flat,
     new_w_ji = merge_weights @ frames_flat  # (M, N) @ (N, n_pix) = (M, n_pix)
     new_expanded_model = new_w_ji.reshape(n_drifts, *frame_size)  # (M, h, w)
     return ec_op.compress(new_expanded_model, model_size, drifts_in_use)
+
 
 def merge_frames_soft_memsaving(frames_flat, 
                                 frame_size: Tuple[int, int], 

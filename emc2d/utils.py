@@ -1,10 +1,90 @@
 import numpy as np
-from typing import Tuple, Union
+from typing import Tuple, Union, List, Optional
 import logging
 from scipy.sparse import csr_matrix
 
 
 logger = logging.getLogger("emc2d.utils")
+
+
+def drift_space_coarse_grain(drift_radius: Tuple[int, int], multiple: Tuple[int, int], return_indices=True):
+    """
+    Coarse grain the drift space by a multiple.
+    
+    Parameters
+    ----------
+    drift_radius: Tuple[int, int]
+        the drift space radius along the x, y dimensions
+    multiple: Tuple[int, int]
+        the multiples for coarse graining of the x, y dimensions
+    return_indices: bool
+        If set true, then returns indices of drifts in the whole drift space. Otherwise returns x and y coordinates.
+    
+    Returns
+    -------
+    coarsed_drift_indices: array of 1D
+        The solo indices of the coarse-grained locations in the drift space (2 * drift_radius + 1).
+    """
+    h, w = [2*r + 1 for r in drift_radius]
+    x_locs, y_locs = [np.arange(m//2, 2*r+1, m) for r, m in zip(drift_radius, multiple)]
+    if return_indices:
+        coarsed_drift_indices = x_locs[:, None] * w + y_locs[None, :]
+        return coarsed_drift_indices.flatten()
+    return x_locs, y_locs
+    
+    
+def drift_indices_to_locations(drift_radius: Tuple[int, int], drift_indices: Optional[List[int]] = None):
+    """
+    Convert indices of locations in a drift space to x, y locations.
+    The origin is at the corner.
+    
+    Parameters
+    ----------
+    drift_radius: Tuple[int, int]
+        the drift space radius along the x, y dimensions
+    drift_indices: : List[int]
+        The solo indices of the locations in the drift space (2 * drift_radius + 1).
+        
+    Returns
+    -------
+    x: array of shape (n,)
+    y: array of shape (n,)
+        x, y coordinates of the locations corresponding to the drift_indices, where n = len(drift_indices).
+    """
+    if drift_indices is None:
+        drift_indices = list(range((2*drift_radius[0] + 1) * (2*drift_radius[1] + 1)))
+
+    drift_indices = np.asarray(drift_indices, dtype=np.int)
+    h, w = [2*r + 1 for r in drift_radius]
+    x = drift_indices // w
+    y = drift_indices % w
+    return x, y
+
+
+def fold_likelihood_map(membership_probability,
+                        drift_radius: Tuple[int, int],
+                        drifts_in_use: Optional[List[int]] = None):
+    h, w = [2*r + 1 for r in drift_radius]
+    if drifts_in_use is None:
+        drifts_in_use = list(range(h*w))
+
+    M, N = membership_probability.shape
+    if M != len(drifts_in_use):
+        raise ValueError("membership probability dimension does not match the length of the given drifts_in_use")
+
+    xrange, yrange = [np.arange(0, h), np.arange(0, w)]
+    x, y = drift_indices_to_locations(drift_radius, drifts_in_use)
+    pmat = np.zeros(shape=(N, h, w), dtype=np.float32)
+    pmat[:, x, y] = membership_probability.T
+    return pmat
+
+
+def centre_crop(img, size: Tuple[int, int]):
+    sx, sy = (size, size) if type(size) is int else size
+    mx, my = (img.shape[0] - sx) // 2, (img.shape[1] - sy) // 2
+        
+    ret = img[mx:mx+sx, my:my+sy]
+    return ret
 
 
 def make_drift_vectors(max_drift: Tuple[int, int], origin: str = 'center') -> np.ndarray:
