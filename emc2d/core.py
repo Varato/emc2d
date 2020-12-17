@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 import logging
 
-from .utils import vectorize_data, model_reshape
+from .utils import vectorize_data, model_reshape, fold_likelihood_map
 from .transform import ECOperator
 from .calibrate import maximum_likelihood_drifts, centre_by_reference, centre_by_first_frame
 
@@ -65,6 +65,12 @@ class EMC(object):
 
         self.history = {'model_mean': [], 'convergence': []}
 
+    @property
+    def folded_membership_probability(self):
+        if self.membership_probability is None:
+            return None
+        return fold_likelihood_map(self.membership_probability, self.drift_radius, self.drifts_in_use)
+
     def run(self, iterations: int, lpfs: float = None):
         for _ in tqdm(range(iterations)):
             last_model = self.curr_model
@@ -73,7 +79,6 @@ class EMC(object):
             convergence = np.mean((last_model - self.curr_model)**2)
             self.history['model_mean'].append(power)
             self.history['convergence'].append(convergence)
-        return self.history
 
     def run_memsaving(self, iterations: int, lpfs: float = None):
         for _ in tqdm(range(iterations)):

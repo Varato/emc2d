@@ -31,8 +31,26 @@ def drift_space_coarse_grain(drift_radius: Tuple[int, int], multiple: Tuple[int,
         coarsed_drift_indices = x_locs[:, None] * w + y_locs[None, :]
         return coarsed_drift_indices.flatten()
     return x_locs, y_locs
-    
-    
+
+
+def drift_locations_to_indices(drift_radius: Tuple[int, int], xs, ys):
+    """
+
+    Parameters
+    ----------
+    drift_radius: Tuple[int, int]
+    xs: array 1D
+    ys: array 1D
+
+    Returns
+    -------
+
+    """
+    h, w = [2*r + 1 for r in drift_radius]
+    indices = (xs[:, None] * w + ys[None, :]).flatten()
+    return indices
+
+
 def drift_indices_to_locations(drift_radius: Tuple[int, int], drift_indices: Optional[List[int]] = None):
     """
     Convert indices of locations in a drift space to x, y locations.
