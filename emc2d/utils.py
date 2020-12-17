@@ -98,6 +98,44 @@ def make_drift_vectors(drift_radius: Tuple[int, int], origin: str = 'center') ->
         raise ValueError("origin must be either 'center' or 'corner'")
 
 
+def group_frames(frames, group_size: int):
+    if group_size == 1:
+        return frames
+    num_frames = frames.shape[0]
+    remainder = num_frames % group_size
+    whole = int(num_frames - remainder)
+
+    new_frames = np.array([np.sum(frames[i:i + group_size, :, :], axis=0) for i in range(0, whole, group_size)])
+    return new_frames
+
+
+def group_motions(traj, group_size: int, average: bool = True):
+    if group_size == 1:
+        return traj
+
+    num_frames = traj.shape[0]
+    remainder = num_frames % group_size
+    whole = int(num_frames - remainder)
+
+    new_traj = np.array([traj[i:i + group_size, :] for i in range(0, whole, group_size)])
+    if average:
+        new_traj = np.sum(new_traj, axis=1)/group_size
+    return new_traj
+
+
+def get_spectrum(image, center_cover_size: int = 20, max_normalized: bool = True):
+    h, w = image.shape
+    c = center_cover_size
+    ft = np.fft.fftshift(np.fft.fft2(image))
+    ps = np.abs(ft)**2
+    ch_start = (h-c)//2
+    cw_start = (w-c)//2
+    if max_normalized:
+        ps /= ps.max()
+    ps[ch_start:ch_start+c, cw_start:cw_start+c] = 0
+    return ps
+
+
 def get_translation_series(intensity, window_size, translations) -> np.ndarray:
     n_drifts = translations.shape[0]
 

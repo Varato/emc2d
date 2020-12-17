@@ -71,31 +71,6 @@ def generate_frames(
     return np.random.poisson(translation_series), traj
 
 
-def group_frames(frames, group_size: int):
-    if group_size == 1:
-        return frames
-    num_frames = frames.shape[0]
-    remainder = num_frames % group_size
-    whole = int(num_frames - remainder)
-
-    new_frames = np.array([np.sum(frames[i:i + group_size, :, :], axis=0) for i in range(0, whole, group_size)])
-    return new_frames
-
-
-def group_motions(traj, group_size: int, average: bool = True):
-    if group_size == 1:
-        return traj
-
-    num_frames = traj.shape[0]
-    remainder = num_frames % group_size
-    whole = int(num_frames - remainder)
-
-    new_traj = np.array([traj[i:i + group_size, :] for i in range(0, whole, group_size)])
-    if average:
-        new_traj = np.sum(new_traj, axis=1)/group_size
-    return new_traj
-
-
 def normalize_img_linear(img, new_min, new_max):
     """
     linearly normalizes an image such that its values are between new_min and new_max
