@@ -189,7 +189,7 @@ def compute_membership_probability_memsaving(
         model,
         frame_size: Tuple[int, int],
         drift_radius: Tuple[int, int],
-        drifts_in_use: Optional[List[int]] = None, 
+        drifts_in_use: Optional[List[int]] = None,
         return_raw: bool = False):
     """
     Computes the membership probability matrix given expanded_model and frames.
@@ -244,7 +244,7 @@ def compute_membership_probability(
         model,
         frame_size: Tuple[int, int],
         drift_radius: Tuple[int, int],
-        drifts_in_use: Optional[List[int]] = None, 
+        drifts_in_use: Optional[List[int]] = None,
         return_raw: bool = False):
     """
     Computes the membership probability matrix given expanded_model and frames.
@@ -289,9 +289,36 @@ def compute_membership_probability(
     return membershipt_probability
 
 
-def merge_frames_soft(frames_flat, 
-                      frame_size: Tuple[int, int], 
-                      model_size: Tuple[int, int], 
+def compute_effect_merge_weights(membership_probability, drifts_in_use):
+    """
+    Convert membership probability to a merge-weight matrix.
+    If one row of membership_probability is summed to zero (< 1e-13), then no frame contributes to the corresponding
+    drift location. During the compress step, these rows should not be accounted.
+
+    Parameters
+    ----------
+    membership_probability: array  (M, N)
+    drifts_in_use: List[int]
+
+    Returns
+    -------
+    merge_weights: array (M', N)
+        M' < M if there exist rows in membership_probability that summed to zero.
+    Notes
+    -----
+
+    """
+    # Dynamically removing drifts where no frame contributes
+    z = membership_probability.sum(1)  # (M, )
+    effect_drifts_idx = np.argwhere(z > 1e-17).squeeze()
+    merge_weights = membership_probability[effect_drifts_idx] / z[effect_drifts_idx][:, None]  # broadcast to (M', N)
+    effect_drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)[effect_drifts_idx]
+    return merge_weights, effect_drifts_in_use
+
+
+def merge_frames_soft(frames_flat,
+                      frame_size: Tuple[int, int],
+                      model_size: Tuple[int, int],
                       membership_probability: np.ndarray,
                       drift_radius: Tuple[int, int],
                       drifts_in_use: Optional[List[int]] = None):
@@ -305,7 +332,7 @@ def merge_frames_soft(frames_flat,
         the frame shape (h, w).
     model_size: Tuple[int, int]
         the model shape (H, W).
-    membership_probability: 2D array in shape (M, N)
+    membership_probability: array in shape (M, N)
         the membership probabilities for each frame against each drift.
     drift_radius: Tuple[int, int]
     drifts_in_use: Optional[List[int]]
@@ -319,18 +346,17 @@ def merge_frames_soft(frames_flat,
 
     ec_op = ECOperator(drift_radius)
 
-    n_drifts = membership_probability.shape[0]
-    z = membership_probability.sum(1, keepdims=True)
-    merge_weights = membership_probability / np.where(z < 1e-13, 1, z)  # (n_drifts, n_frames)
+    merge_weights, effect_drifts_in_use = compute_effect_merge_weights(membership_probability, drifts_in_use)
 
-    new_w_ji = merge_weights @ frames_flat  # (M, N) @ (N, n_pix) = (M, n_pix)
-    new_expanded_model = new_w_ji.reshape(n_drifts, *frame_size)  # (M, h, w)
-    return ec_op.compress(new_expanded_model, model_size, drifts_in_use)
+    new_w_ji = merge_weights @ frames_flat  # (M', N) @ (N, n_pix) = (M', n_pix)
+    new_expanded_model = new_w_ji.reshape(-1, *frame_size)  # (M', h, w)
+
+    return ec_op.compress(new_expanded_model, model_size, effect_drifts_in_use)
 
 
-def merge_frames_soft_memsaving(frames_flat, 
-                                frame_size: Tuple[int, int], 
-                                model_size: Tuple[int, int], 
+def merge_frames_soft_memsaving(frames_flat,
+                                frame_size: Tuple[int, int],
+                                model_size: Tuple[int, int],
                                 membership_probability: np.ndarray,
                                 drift_radius: Tuple[int, int],
                                 drifts_in_use: Optional[List[int]] = None):
@@ -340,20 +366,17 @@ def merge_frames_soft_memsaving(frames_flat,
     if drifts_in_use is None:
         drifts_in_use = list(range((2*drift_radius[0] + 1) * (2*drift_radius[1] + 1)))
 
-    drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
-
-    z = membership_probability.sum(1, keepdims=True)
-    merge_weights = membership_probability / np.where(z < 1e-13, 1, z)  # (n_drifts, n_frames)
-
+    merge_weights, effect_drifts_in_use = compute_effect_merge_weights(membership_probability, drifts_in_use)
     max_drift_x, max_drift_y = drift_radius
     h, w = frame_size
     H, W = model_size
 
+    effect_drifts_in_use = np.array(effect_drifts_in_use, dtype=np.uint32)
     model = emc_kernel.merge_frames_soft(
         frames_flat=frames_flat.astype(np.float32),
         h=h, w=w, H=H, W=W,
         drift_radius_y=max_drift_y,
         merge_weights=merge_weights.astype(np.float32),
-        drifts_in_use=drifts_in_use)
+        drifts_in_use=effect_drifts_in_use)
 
     return model
