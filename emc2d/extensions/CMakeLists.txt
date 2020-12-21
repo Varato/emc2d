@@ -1,3 +1,5 @@
+project(emc2d C CXX)
+
 find_package(OpenMP)
 if (OPENMP_FOUND)
     message("-- Found OpenMP library ${OpenMP_CXX_LIBRARIES}")
@@ -16,4 +18,6 @@ if (UNIX)
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mavx2")
 endif(UNIX)
 
+add_library(emcCore src/emcCore.cpp)
 pybind11_add_module(emc_kernel src/emc_kernel.cpp)
+target_link_libraries(emc_kernel PRIVATE emcCore)
