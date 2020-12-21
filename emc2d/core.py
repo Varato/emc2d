@@ -72,7 +72,7 @@ class EMC(object):
         return fold_likelihood_map(self.membership_probability, self.drift_radius, self.drifts_in_use)
 
     def run(self, iterations: int, lpfs: float = None):
-        for _ in tqdm(range(iterations)):
+        for _ in tqdm(range(iterations), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}'):
             last_model = self.curr_model
             self.one_step(lpfs)
             power = self.curr_model.mean()
@@ -81,7 +81,7 @@ class EMC(object):
             self.history['convergence'].append(convergence)
 
     def run_memsaving(self, iterations: int, lpfs: float = None):
-        for _ in tqdm(range(iterations)):
+        for _ in tqdm(range(iterations), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}'):
             last_model = self.curr_model
             self.one_step_memsaving(lpfs)
             power = self.curr_model.mean()

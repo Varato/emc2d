@@ -49,18 +49,18 @@ def show_emc_state(emc: core.EMC):
     frames = np.array(emc.frames.todense()) if type(emc.frames) is csr_matrix else np.array(emc.frames)
     frames_sum = frames.reshape(emc.num_frames, *emc.frame_size).sum(0)
 
-    fig, axes = plt.subplots(ncols=5, figsize=(10, 3))
-    axes[0].plot(emc.history['model_mean'])
-    axes[1].plot(emc.history['convergence'])
-    axes[2].hist(emc.curr_model.reshape(-1,), bins=50)
-    axes[3].imshow(frames_sum)
-    axes[4].imshow(recon_cropped)
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharex='col')
+    axes[0, 0].plot(emc.history['model_mean'])
+    axes[1, 0].plot(emc.history['convergence'])
+    axes[0, 1].imshow(frames_sum)
+    axes[1, 1].imshow(recon_cropped)
 
-    axes[0].set_title('model mean')
-    axes[1].set_title('convergence')
-    axes[2].set_title("recon value hist")
-    axes[3].set_title('sum')
-    axes[4].set_title('recon')
+    axes[0, 0].set_title('model mean')
+    axes[1, 0].set_title('convergence')
+    axes[0, 1].set_title('sum')
+    axes[1, 1].set_title('recon')
+    axes[1, 0].set_xlabel('iterations')
+    fig.subplots_adjust(hspace=0.5, wspace=0.1)
     return fig
 
 
@@ -72,11 +72,15 @@ def show_maximum_likelihood_drifts(emc: core.EMC, reference=None, true_traj=None
 
     fig = None
     if axes is None:
-        fig, axes = plt.subplots(nrows=2, sharex='all')
+        fig, axes = plt.subplots(nrows=2, sharex='col')
 
-    axes[0].plot(recon_shifts[:, 0], 'r', label='max lik x')
-    axes[1].plot(recon_shifts[:, 1], 'r', label='max lik y')
+    axes[0].plot(recon_shifts[:, 0], 'r', alpha=0.5, label='max lik')
+    axes[1].plot(recon_shifts[:, 1], 'r', alpha=0.5, label='max lik')
     if true_traj is not None:
-        axes[0].plot(true_traj[:, 0], 'b--', alpha=0.5, label='true x')
-        axes[1].plot(true_traj[:, 1], 'b--', alpha=0.5, label='true y')
+        axes[0].plot(true_traj[:, 0], 'b--', label='truth')
+        axes[1].plot(true_traj[:, 1], 'b--', label='truth')
+    axes[0].set_ylabel("x")
+    axes[1].set_ylabel("y")
+    axes[1].set_xlabel("frame index")
+    axes[0].legend()
     return fig
