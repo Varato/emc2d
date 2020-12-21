@@ -15,17 +15,17 @@ data_path = Path(__file__).resolve().parent / 'test/data/'
 img = np.load(data_path/"4BED_t40_d5000.npy")
 
 frame_size = (128, 128)
-max_drift = (15, 15)
+drift_radius = (15, 15)
 mean_count = 1.5
 num_frames = 500
 motion_sigma = 1.2
-model_size = tuple(frame_size[d] + 2 * max_drift[d] for d in [0,1])
+model_size = tuple(frame_size[d] + 2 * drift_radius[d] for d in [0, 1])
 
 model = build_model(img, model_size=model_size, mean_count=0.02)
 frames, traj = generate_frames(
     intensity=model,
     window_size=frame_size,
-    max_drift=max_drift,
+    drift_radius=drift_radius,
     num_frames=num_frames,
     mean_count=mean_count,
     motion_sigma=motion_sigma)
@@ -33,19 +33,19 @@ frames, traj = generate_frames(
 emc = core.EMC(
     frames=frames,
     frame_size=frame_size,
-    drift_radius=max_drift,
+    drift_radius=drift_radius,
     init_model=model)
 
 
 print("run membership probability")
 
 start = time.time()
-membership_probability1 = core.compute_membership_probability(emc.frames, model, frame_size, max_drift)
+membership_probability1 = core.compute_membership_probability(emc.frames, model, frame_size, drift_radius)
 dt1 = time.time() - start
 print(membership_probability1.shape)
 
 start = time.time()
-membership_probability2 = core.compute_membership_probability_memsaving(emc.frames, model, frame_size, max_drift)
+membership_probability2 = core.compute_membership_probability_memsaving(emc.frames, model, frame_size, drift_radius)
 dt2 = time.time() - start
 print(membership_probability2.shape)
 
@@ -55,11 +55,11 @@ print(f"dt1 = {dt1}, dt2 = {dt2}")
 
 print("run merge frames")
 start = time.time()
-merged_model1 = core.merge_frames_soft(emc.frames, frame_size, model_size, membership_probability1, max_drift)
+merged_model1 = core.merge_frames_soft(emc.frames, frame_size, model_size, membership_probability1, drift_radius)
 dt3 = time.time() - start
 
 start = time.time()
-merged_model2 = core.merge_frames_soft_memsaving(emc.frames, frame_size, model_size, membership_probability1, max_drift)
+merged_model2 = core.merge_frames_soft_memsaving(emc.frames, frame_size, model_size, membership_probability1, drift_radius)
 dt4 = time.time() - start
 
 # ratio = merged_model1 / merged_model2

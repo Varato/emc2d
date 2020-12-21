@@ -227,7 +227,7 @@ def compute_membership_probability_memsaving(
         frames_flat=frames_flat.astype(np.float32),
         model=model.astype(np.float32),
         h=h, w=w,
-        max_drift_y=max_drift_y,
+        drift_radius_y=max_drift_y,
         drifts_in_use=drifts_in_use
     )
     if return_raw:
@@ -320,7 +320,8 @@ def merge_frames_soft(frames_flat,
     ec_op = ECOperator(drift_radius)
 
     n_drifts = membership_probability.shape[0]
-    merge_weights = membership_probability / membership_probability.sum(1, keepdims=True)  # (n_drifts, n_frames)
+    z = membership_probability.sum(1, keepdims=True)
+    merge_weights = membership_probability / np.where(z < 1e-13, 1, z)  # (n_drifts, n_frames)
 
     new_w_ji = merge_weights @ frames_flat  # (M, N) @ (N, n_pix) = (M, n_pix)
     new_expanded_model = new_w_ji.reshape(n_drifts, *frame_size)  # (M, h, w)
@@ -341,8 +342,8 @@ def merge_frames_soft_memsaving(frames_flat,
 
     drifts_in_use = np.array(drifts_in_use, dtype=np.uint32)
 
-    n_drifts = membership_probability.shape[0]
-    merge_weights = membership_probability / membership_probability.sum(1, keepdims=True) # (n_drifts, n_frames)
+    z = membership_probability.sum(1, keepdims=True)
+    merge_weights = membership_probability / np.where(z < 1e-13, 1, z)  # (n_drifts, n_frames)
 
     max_drift_x, max_drift_y = drift_radius
     h, w = frame_size
@@ -350,8 +351,8 @@ def merge_frames_soft_memsaving(frames_flat,
 
     model = emc_kernel.merge_frames_soft(
         frames_flat=frames_flat.astype(np.float32),
-        h=h, w=w, H=H, W=W, 
-        max_drift_y=max_drift_y,
+        h=h, w=w, H=H, W=W,
+        drift_radius_y=max_drift_y,
         merge_weights=merge_weights.astype(np.float32),
         drifts_in_use=drifts_in_use)
 
