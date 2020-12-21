@@ -74,7 +74,12 @@ def centre_by_first_frame(frame_positions, drift_radius: Tuple[int, int], centre
     return calibrating_shift, frame_positions
 
 
-def centre_by_reference(frame_positions, drift_radius: Tuple[int, int], frame_size: Tuple[int, int], model, reference, drifts_in_use,
+def centre_by_reference(frame_positions,
+                        drift_radius: Tuple[int, int],
+                        frame_size: Tuple[int, int],
+                        model,
+                        reference,
+                        drifts_in_use,
                         centre_is_origin=True):
     calibrating_shift = calibrate_drifts_with_reference(drift_radius, frame_size, model, reference, drifts_in_use)
     frame_positions += calibrating_shift

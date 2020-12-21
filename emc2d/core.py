@@ -56,14 +56,19 @@ class EMC(object):
         # the operator for 'expand' and 'compress'
         self.ec_op = ECOperator(drift_radius)
 
-        # use this property to select a subset of drifts to be considered.
-        # default: consider all drifts.
-        self.drifts_in_use = list(range(len(self.ec_op.all_drifts)))
-
         # to hold the membership probability matrix
         self.membership_probability = None
 
         self.history = {'model_mean': [], 'convergence': []}
+
+        self._drifts_in_use = None
+
+    @property
+    def drifts_in_use(self):
+        n_drifts = (2*self.drift_radius[0] + 1) * (2*self.drift_radius[1] + 1)
+        if self._drifts_in_use is None:
+            return list(range(n_drifts))
+        return self._drifts_in_use
 
     @property
     def folded_membership_probability(self):
@@ -71,10 +76,19 @@ class EMC(object):
             return None
         return fold_likelihood_map(self.membership_probability, self.drift_radius, self.drifts_in_use)
 
-    def run(self, iterations: int, lpfs: float = None):
+    def run(self, iterations: int, drifts_in_use: List[int] = None, lpfs: float = None):
         for _ in tqdm(range(iterations), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}'):
             last_model = self.curr_model
-            self.one_step(lpfs)
+            self.one_step(drifts_in_use, lpfs)
+            power = self.curr_model.mean()
+            convergence = np.mean((last_model - self.curr_model)**2)
+            self.history['model_mean'].append(power)
+            self.history['convergence'].append(convergence)
+
+    def run_frame_sparse(self, iterations: int, frame_drifts_in_use: List[List[int]], lpfs: float = None):
+        for _ in tqdm(range(iterations), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}'):
+            last_model = self.curr_model
+            self.one_step_frame_sparse(frame_drifts_in_use, lpfs)
             power = self.curr_model.mean()
             convergence = np.mean((last_model - self.curr_model)**2)
             self.history['model_mean'].append(power)
@@ -89,16 +103,37 @@ class EMC(object):
             self.history['model_mean'].append(power)
             self.history['convergence'].append(convergence)
 
-    def one_step(self, lpfs: float = None):
+    def one_step_frame_sparse(self, frames_drifts_in_use: List[List[int]], lpfs: float = None):
+        if lpfs is not None:
+            self.curr_model = gaussian_filter(self.curr_model, sigma=lpfs)
+
+        self.membership_probability = compute_membership_probability_frame_spase(
+            frames_flat=self.frames,
+            model=self.curr_model,
+            frame_size=self.frame_size,
+            drift_radius=self.drift_radius,
+            frame_drifts_in_use=frames_drifts_in_use)
+
+        self.curr_model = merge_frames_soft(
+            frames_flat=self.frames,
+            frame_size=self.frame_size,
+            model_size=self.model_size,
+            membership_probability=self.membership_probability,
+            drift_radius=self.drift_radius,
+            drifts_in_use=None)
+
+        self._drifts_in_use = None
+
+    def one_step(self, drifts_in_use: List[int] = None, lpfs: float = None):
         if lpfs is not None:
             self.curr_model = gaussian_filter(self.curr_model, sigma=lpfs)
 
         self.membership_probability = compute_membership_probability(
-            frames_flat=self.frames, 
-            model=self.curr_model, 
-            frame_size=self.frame_size, 
+            frames_flat=self.frames,
+            model=self.curr_model,
+            frame_size=self.frame_size,
             drift_radius=self.drift_radius,
-            drifts_in_use=self.drifts_in_use,
+            drifts_in_use=drifts_in_use,
             return_raw=False)
 
         self.curr_model = merge_frames_soft(
@@ -107,7 +142,9 @@ class EMC(object):
             model_size=self.model_size, 
             membership_probability=self.membership_probability,
             drift_radius=self.drift_radius,
-            drifts_in_use=self.drifts_in_use)
+            drifts_in_use=drifts_in_use)
+
+        self._drifts_in_use = drifts_in_use
 
     def one_step_memsaving(self, lpfs: float = None):
         if lpfs is not None:
@@ -282,6 +319,30 @@ def compute_membership_probability(
     ll = frames_flat.dot(np.log(expanded_model_flat.T + 1e-13)).T - expanded_model_flat.sum(1, keepdims=True)
     if return_raw:
         return ll
+    ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -1000.0, 1.)
+    p_jk = np.exp(ll)
+
+    membershipt_probability = p_jk / p_jk.sum(0)
+    return membershipt_probability
+
+
+def compute_membership_probability_frame_spase(frames_flat,
+                                               model,
+                                               frame_size: Tuple[int, int],
+                                               drift_radius: Tuple[int, int],
+                                               frame_drifts_in_use: Optional[List[List[int]]]):
+    n_frames = frames_flat.shape[0]
+    n_drifts = (2*drift_radius[0] + 1) * (2*drift_radius[1] + 1)
+    ec_op = ECOperator(drift_radius)
+
+    ll = -np.ones(shape=(n_frames, n_drifts), dtype=np.float64) * np.infty  # (N, M)
+    for k in range(n_frames):
+        fdidx = frame_drifts_in_use[k]
+        wji = ec_op.expand(model, frame_size, fdidx, flatten=True)  # (M', n)
+        #  (1, n) @ (n, M') - (1, M') -> (1, M')
+        ll[k, fdidx] = frames_flat[k].dot(np.log(wji.T + 1e-13)) - wji.sum(1)[None, :]
+
+    ll = ll.T  # (M, N)
     ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -1000.0, 1.)
     p_jk = np.exp(ll)
 
