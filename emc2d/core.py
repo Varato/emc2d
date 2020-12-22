@@ -76,6 +76,15 @@ class EMC(object):
             return None
         return fold_likelihood_map(self.membership_probability, self.drift_radius, self.drifts_in_use)
 
+    def binary_location_map(self, threshold: float = 1e-3):
+        pmat = self.folded_membership_probability
+        binary = pmat >= threshold
+        return binary
+
+    def discard_frames(self, frame_indices: List[int]):
+        # TODO: delete for csr_matrix
+        np.delete(self.frames, frame_indices, axis=0)
+
     def run(self, iterations: int, drifts_in_use: List[int] = None, lpfs: float = None):
         for _ in tqdm(range(iterations), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}'):
             last_model = self.curr_model

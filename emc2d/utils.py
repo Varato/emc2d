@@ -2,7 +2,8 @@ import numpy as np
 from typing import Tuple, Union, List, Optional
 import logging
 from scipy.sparse import csr_matrix
-
+from scipy.ndimage import distance_transform_edt
+from skimage.measure import label as sk_label
 
 logger = logging.getLogger("emc2d.utils")
 
@@ -90,7 +91,6 @@ def fold_likelihood_map(membership_probability,
     if M != len(drifts_in_use):
         raise ValueError("membership probability dimension does not match the length of the given drifts_in_use")
 
-    xrange, yrange = [np.arange(0, h), np.arange(0, w)]
     x, y = drift_indices_to_locations(drift_radius, drifts_in_use)
     pmat = np.zeros(shape=(N, h, w), dtype=np.float32)
     pmat[:, x, y] = membership_probability.T
@@ -106,7 +106,8 @@ def centre_crop(img, size: Tuple[int, int]):
 
 
 def make_drift_vectors(drift_radius: Tuple[int, int], origin: str = 'center') -> np.ndarray:
-    vectors = np.array([(x, y) for x in range(2*drift_radius[0] + 1) for y in range(2*drift_radius[1] + 1)], dtype=np.int)
+    vectors = np.array(
+        [(x, y) for x in range(2*drift_radius[0] + 1) for y in range(2*drift_radius[1] + 1)], dtype=np.int)
 
     if origin == 'center':
         return np.array(drift_radius, dtype=np.int) - vectors
@@ -194,13 +195,13 @@ def vectorize_data(frames: Union[np.ndarray, csr_matrix]):
         ratio = nnz / data_size
         if ratio < 0.01:
             logger.info(f"nnz / data_size = {100 * ratio:.2f}%, using csr sparse data format")
-            return vec_data # csr_matrix(vec_data)
+            return vec_data  # csr_matrix(vec_data)
         else:
             logger.info(f"nnz / data_size = {100 * ratio:.2f}%, using dense data format")
             return vec_data
 
 
-def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int], return_mask=True):
+def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int]):
     """
     Pad or crop the model so that its shape becomes expected_shape.
 
@@ -208,7 +209,6 @@ def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int], return_mas
     ----------
     model: 2D array
     expected_shape: Tuple[int ,int]
-    return_mask: bool
 
     Returns
     -------
@@ -237,3 +237,50 @@ def model_reshape(model: np.ndarray, expected_shape: Tuple[int, int], return_mas
         mask = np.ones(init_shape)
         mask[start_x:start_x + expected_shape[0], start_y:start_y + expected_shape[1]] = 0
         return model[start_x:start_x + expected_shape[0], start_y:start_y + expected_shape[1]], mask
+
+
+# per frame subregioning
+def broaden_searching_regions(bmap, r: int = 2):
+    bmap_not = np.logical_not(bmap)
+    bmap_new = np.array([distance_transform_edt(bmap_not[k]) < r for k in range(bmap.shape[0])])
+    return bmap_new
+
+
+def impose_continuity(bmap, broaden_r: int = 2):
+
+    def broaden(bm, r: int):
+        bm_not = np.logical_not(bm)
+        return distance_transform_edt(bm_not) < r
+
+    n_frames = bmap.shape[0]
+    bmap_new = np.copy(bmap)
+
+    # find clusters in bmap_new[0]
+    lmap, nccs = sk_label(bmap_new[0], return_num=True)
+    cnts = [np.mean(np.argwhere(lmap == n), axis=0) for n in range(1, nccs+1)]
+    if nccs > 1:
+        # TODO
+        cnts0 = cnts[0]
+        bmap_new[0] = (lmap == 1).astype(np.bool)
+    else:
+        cnts0 = cnts[0]
+
+    for k in range(1, n_frames):
+        commons = np.logical_and(bmap_new[k], bmap_new[k-1])
+        if not np.any(commons):
+            bmap_new[k] = broaden(bmap_new[k-1], broaden_r)
+
+        lmap, nccs = sk_label(bmap_new[k], return_num=True)
+        cnts = np.array([np.mean(np.argwhere(lmap == n), axis=0) for n in range(1, nccs+1)])  # (nccs, 2)
+        dists = np.sum((cnts - cnts0)**2, axis=1)  # (nccs, )
+        chosen_label = np.argmin(dists) + 1
+        bmap_new[k] = (lmap == chosen_label).astype(np.bool)
+        cnts0 = cnts[chosen_label - 1]
+
+    return bmap_new
+
+
+def bmap_to_frame_drift_indices(bmap):
+    n_frames = bmap.shape[0]
+    bmap_r = bmap.reshape(n_frames, -1)
+    return [np.argwhere(b).squeeze() for b in bmap_r]
