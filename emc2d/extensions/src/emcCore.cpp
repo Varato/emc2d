@@ -7,6 +7,7 @@
 #include <algorithm>    // std::transform
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <immintrin.h>  // avx intrinsics
 
 #include "emcCore.h"
@@ -136,7 +137,7 @@ void computeLogLikelihoodMap(float_type framesFlat[],
      *     N = number of frames
      *     M = number of all drifts
      *     m = number of effective drifts
-     *     npix = w * h
+     *     npix = w * h = numPixels
      *
      *     framesFlat: (N, npix)
      *     model: (H, W)
@@ -154,7 +155,7 @@ void computeLogLikelihoodMap(float_type framesFlat[],
     std::vector<float_type> logModel(modelNumPixels);
     std::transform(model, model + modelNumPixels, logModel.begin(), [](float_type v){return log(v + eps);});
 
-#pragma omp parallel for
+    #pragma omp parallel for
     for (int k = 0; k < numFrames; ++k) {
         for (size_t j = 0; j < numDriftsInUse; ++j) {
             size_t t = driftsInUse[j];
@@ -169,6 +170,67 @@ void computeLogLikelihoodMap(float_type framesFlat[],
                 Ljk += frameRowLikelihood(frameRowPtr, logModelRowPtr, modelRowPtr, w);
             }
             output[j * numFrames + k] = Ljk;
+        }
+    }
+}
+
+void computeLogLikelihoodMapFrameSparse(float_type framesFlat[],
+                                        float_type model[],
+                                        size_t H, size_t W,  // model dims
+                                        size_t h, size_t w,  // frame dims
+                                        size_t numPixels,
+                                        size_t numFrames,
+                                        int32_t const frameDriftsInUse[],
+                                        size_t maxNumFrameDrifts,
+                                        size_t driftRadiusX,
+                                        size_t driftRadiusY,
+                                        float_type output[]) {
+    /* Logic dimensions of arrays:
+     *     N = number of frames
+     *     M = number of all drifts
+     *     m = number of effective drifts
+     *     npix = w * h = numPixels
+     *
+     *     framesFlat: (N, npix)
+     *     model: (H, W)
+     *     frameDriftsInUse: (N, maxNumFrameDrift)
+     *
+     *     output: (M, N)
+     *
+     * maxDriftX and driftRadiusY define the drift space of dimensions (2*maxDriftX + 1, 2*driftRadiusY + 1)
+     * Assume the origin is at the corner, i.e. (x, y) = (0, 0) is the first drift.
+     */
+
+    size_t kk;
+    size_t modelNumPixels = W * H;
+    size_t numDrifts = (2*driftRadiusX + 1) * (2*driftRadiusY + 1);
+
+    // pre-compute the slow log
+    std::vector<float_type> logModel(modelNumPixels);
+    std::transform(model, model + modelNumPixels, logModel.begin(), [](float_type v){return log(v + eps);});
+
+    // fill the output with lowest float (because it is log likelihood)
+    std::fill(output, output + numDrifts * numFrames, std::numeric_limits<float_type>::lowest());
+
+    #pragma omp parallel for
+    for (int k = 0; k < numFrames; ++k) {
+        kk = k * maxNumFrameDrifts;
+        for (size_t j = 0; j < maxNumFrameDrifts; ++j) {
+            size_t t = frameDriftsInUse[kk + j];
+            if (t == -1) break;
+            else {
+                size_t x = t / (2*driftRadiusY + 1);
+                size_t y = t % (2*driftRadiusY + 1);
+
+                float_type Ljk = 0;  //cumulator
+                for (int row = 0; row < h; ++row) {
+                    float_type *modelRowPtr = model + (x + row) * W + y;
+                    float_type *logModelRowPtr = logModel.data() + (x + row) * W + y;
+                    float_type *frameRowPtr = framesFlat + k * numPixels + row * w;
+                    Ljk += frameRowLikelihood(frameRowPtr, logModelRowPtr, modelRowPtr, w);
+                }
+                output[t * numFrames + k] = Ljk;
+            }
         }
     }
 }

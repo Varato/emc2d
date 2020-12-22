@@ -194,7 +194,7 @@ def vectorize_data(frames: Union[np.ndarray, csr_matrix]):
         ratio = nnz / data_size
         if ratio < 0.01:
             logger.info(f"nnz / data_size = {100 * ratio:.2f}%, using csr sparse data format")
-            return csr_matrix(vec_data)
+            return vec_data # csr_matrix(vec_data)
         else:
             logger.info(f"nnz / data_size = {100 * ratio:.2f}%, using dense data format")
             return vec_data

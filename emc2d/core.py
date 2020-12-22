@@ -107,7 +107,7 @@ class EMC(object):
         if lpfs is not None:
             self.curr_model = gaussian_filter(self.curr_model, sigma=lpfs)
 
-        self.membership_probability = compute_membership_probability_frame_spase(
+        self.membership_probability = compute_membership_probability_frame_spase_memsaving(
             frames_flat=self.frames,
             model=self.curr_model,
             frame_size=self.frame_size,
@@ -343,6 +343,30 @@ def compute_membership_probability_frame_spase(frames_flat,
         ll[k, fdidx] = frames_flat[k].dot(np.log(wji.T + 1e-13)) - wji.sum(1)[None, :]
 
     ll = ll.T  # (M, N)
+    ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -1000.0, 1.)
+    p_jk = np.exp(ll)
+
+    membershipt_probability = p_jk / p_jk.sum(0)
+    return membershipt_probability
+
+
+def compute_membership_probability_frame_spase_memsaving(frames_flat,
+                                                         model,
+                                                         frame_size: Tuple[int, int],
+                                                         drift_radius: Tuple[int, int],
+                                                         frame_drifts_in_use: Optional[List[List[int]]]):
+    h, w = frame_size
+    pad = len(max(frame_drifts_in_use, key=len))
+    frame_drifts = np.array([list(i) + [-1]*(pad-len(i)) for i in frame_drifts_in_use], dtype=np.int32)
+
+    # (M, N)
+    ll = emc_kernel.compute_log_likelihood_map_frame_sparse(frames_flat.astype(np.float32),
+                                                            model.astype(np.float32),
+                                                            h, w,
+                                                            drift_radius[0],
+                                                            drift_radius[1],
+                                                            frame_drifts)
+
     ll = np.clip(ll - np.max(ll, axis=0, keepdims=True), -1000.0, 1.)
     p_jk = np.exp(ll)
 
